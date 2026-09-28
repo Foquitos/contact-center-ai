@@ -96,9 +96,9 @@ Cada una está explicada, con su contexto y sus alternativas, en [docs/DECISIONE
   atributo. Los chatbots tienen un set dorado de preguntas reales para medir la recuperación del RAG.
 - **RAG híbrido** (Qdrant + BM25 + reranker). Cada fragmento repite el título de su sección, y cuando el bot no
   está seguro ofrece temas para elegir en vez de responder "no encontré".
-- **Pronóstico validado con backtest.** GBDT + persistencia + corrección intradía. Sobre un año de historia, el
-  error del plan de la mañana bajó de 17,7 % a 14,4 % (MAPE del total diario). Ver
-  [docs/PLANIFICADOR.md](docs/PLANIFICADOR.md) y [docs/ESTADISTICA.md](docs/ESTADISTICA.md).
+- **Pronóstico validado con backtest.** GBDT + persistencia + corrección intradía, con clima, feriados y el
+  forecast del cliente como señales. Ningún cambio de modelo entra sin ganarle al anterior en un año de historia.
+  Ver [docs/PLANIFICADOR.md](docs/PLANIFICADOR.md) y [docs/ESTADISTICA.md](docs/ESTADISTICA.md).
 - **Costos controlados.** Se usa caché de contexto de Gemini. Hay un catálogo de modelos con precios vigentes por
   fecha, cupos por campaña y el costo registrado por función.
 - **SQL verificado en los tests sin ejecutarlo** (`sys.dm_exec_describe_first_result_set`). Las migraciones son
@@ -181,4 +181,6 @@ El manual para usuarios finales está dentro de la aplicación, en `/documentaci
 
 ---
 
-**Autor:** Ignacio Otranto
+**Autor:** Ignacio Otranto ·
+[LinkedIn](https://www.linkedin.com/in/ignacio-julian-otranto/) ·
+[otrantoignacio0@gmail.com](mailto:otrantoignacio0@gmail.com)
