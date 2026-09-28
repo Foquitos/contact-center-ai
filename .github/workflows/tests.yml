@@ -56,4 +56,12 @@ jobs:
           .venv/bin/python db/crear_base_demo.py --sin-datos
 
       - name: Tests
-        run: scripts/correr_tests.sh -m "not tokens"
+        run: |
+          set -o pipefail
+          scripts/correr_tests.sh -m "not tokens" 2>&1 | tee pytest.log
+      - name: Resumen de fallas
+        if: failure()
+        run: |
+          # Cada test fallido queda como anotación de la corrida (se ven sin abrir el log).
+          grep -E "^(FAILED|ERROR) " pytest.log | head -40 | while read -r linea; do echo "::error::${linea:0:900}"; done
+          tail -3 pytest.log | while read -r linea; do echo "::error::${linea:0:900}"; done
