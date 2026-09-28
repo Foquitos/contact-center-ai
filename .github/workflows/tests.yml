@@ -1,0 +1,55 @@
+# Suite offline (sin gastar tokens de IA) contra la base de demostración en SQL Server.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: Demo_ContactCenter_2026
+        ports:
+          - 1433:1433
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Driver ODBC 18 y ffmpeg
+        run: |
+          if ! odbcinst -q -d 2>/dev/null | grep -q "ODBC Driver 18"; then
+            curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
+            curl -fsSL https://packages.microsoft.com/config/ubuntu/24.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+            sudo apt-get update
+            sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18
+          fi
+          sudo apt-get install -y ffmpeg
+
+      - name: Dependencias
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          # torch sin CUDA: los tests no usan GPU y la versión de PyPI pesa varios GB.
+          .venv/bin/pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cpu
+          .venv/bin/pip install -r requirements.txt
+
+      - name: Base de demostración (esquema y migraciones)
+        run: |
+          cp .env.example .env
+          .venv/bin/python db/crear_base_demo.py --sin-datos
+
+      - name: Tests
+        run: scripts/correr_tests.sh -m "not tokens"

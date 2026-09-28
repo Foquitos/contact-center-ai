@@ -10,7 +10,7 @@ por media hora y calcula cuánta gente hace falta.
 ![SQL Server](https://img.shields.io/badge/SQL%20Server-2022-CC2927?logo=microsoftsqlserver&logoColor=white)
 ![Gemini](https://img.shields.io/badge/Google-Gemini-8E75B2?logo=googlegemini&logoColor=white)
 ![Qdrant](https://img.shields.io/badge/Qdrant-RAG-DC244C)
-![Tests](https://img.shields.io/badge/tests-2.700%2B-2EA44F)
+[![Tests](https://github.com/Foquitos/contact-center-ai/actions/workflows/tests.yml/badge.svg)](https://github.com/Foquitos/contact-center-ai/actions/workflows/tests.yml)
 
 ![Recorrido: ingreso, dashboard de auditorías y planificador](docs/img/recorrido.gif)
 
@@ -148,7 +148,8 @@ scripts/correr_tests.sh -m tokens                  # tests contra Gemini de verd
 ```
 
 Varios tests validan SQL contra la base sin ejecutarlo (fixture `validar_sql`). Con la base de demostración
-levantada, la suite corre completa.
+levantada, la suite corre completa; lo mismo hace la integración continua
+([`.github/workflows/tests.yml`](.github/workflows/tests.yml)) en cada push.
 
 ```
 contact-center-ai/
@@ -180,6 +181,8 @@ contact-center-ai/
 El manual para usuarios finales está dentro de la aplicación, en `/documentacion`.
 
 ---
+
+Licencia: todos los derechos reservados; se publica solo como portfolio (ver [LICENSE](LICENSE)).
 
 **Autor:** Ignacio Otranto ·
 [LinkedIn](https://www.linkedin.com/in/ignacio-julian-otranto/) ·
