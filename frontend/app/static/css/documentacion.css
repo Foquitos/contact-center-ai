@@ -1,0 +1,388 @@
+/* --------------------------------------------------------------------------
+   Documentación (manual de uso)
+   Layout de dos columnas: índice pegajoso a la izquierda + contenido de lectura.
+   Usa la paleta corporativa de style.css (--acme-*), sin colores propios nuevos.
+   -------------------------------------------------------------------------- */
+
+.doc-hero {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+    background-color: var(--acme-surface);
+    border-radius: var(--card-radius);
+    box-shadow: var(--shadow-sm);
+    padding: 1.5rem;
+}
+
+.doc-search-wrap {
+    position: relative;
+    min-width: 300px;
+    flex: 0 1 380px;
+}
+
+.doc-search-wrap i {
+    position: absolute;
+    left: 0.85rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--acme-text-muted);
+    pointer-events: none;
+}
+
+.doc-search-wrap .form-control {
+    padding-left: 2.4rem;
+    border-radius: var(--input-radius);
+}
+
+/* --- Layout general --- */
+.doc-layout {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+}
+
+/* --- Índice lateral --- */
+.doc-toc-inner {
+    position: sticky;
+    top: 1rem;
+    background-color: var(--acme-surface);
+    border-radius: var(--card-radius);
+    box-shadow: var(--shadow-sm);
+    padding: 1rem;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+}
+
+.doc-toc-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--acme-text-muted);
+    margin-bottom: 0.75rem;
+}
+
+.doc-toc-nav a {
+    display: block;
+    padding: 0.35rem 0.6rem;
+    border-radius: 6px;
+    color: var(--acme-text-muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+    line-height: 1.3;
+    border-left: 3px solid transparent;
+    transition: var(--transition);
+}
+
+.doc-toc-nav a:hover {
+    background-color: rgba(0, 51, 102, 0.05);
+    color: var(--acme-primary);
+}
+
+/* Subtítulos (h3) dentro del índice: sangrados y más chicos. */
+.doc-toc-nav a.doc-toc-sub {
+    padding-left: 1.4rem;
+    font-size: 0.82rem;
+}
+
+.doc-toc-nav a.active {
+    color: var(--acme-primary);
+    font-weight: 600;
+    border-left-color: var(--acme-secondary);
+    background-color: rgba(0, 168, 204, 0.08);
+}
+
+/* --- Contenido --- */
+.doc-content {
+    min-width: 0; /* deja que las tablas anchas scrolleen en vez de romper la grilla */
+}
+
+.doc-section {
+    background-color: var(--acme-surface);
+    border-radius: var(--card-radius);
+    box-shadow: var(--shadow-sm);
+    padding: 1.75rem 2rem;
+    margin-bottom: 1.5rem;
+    scroll-margin-top: 1rem;
+}
+
+/* La sección destacada (la que más se consulta) se distingue con un borde de color. */
+.doc-section-highlight {
+    border-left: 4px solid var(--acme-secondary);
+}
+
+.doc-section h2 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--acme-primary);
+    padding-bottom: 0.6rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+.doc-section h3 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--acme-primary);
+    margin-top: 1.75rem;
+    margin-bottom: 0.6rem;
+    scroll-margin-top: 1rem;
+}
+
+.doc-section h4 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--acme-text);
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.doc-section p,
+.doc-section li,
+.doc-section dd {
+    line-height: 1.65;
+}
+
+.doc-section code {
+    background-color: rgba(0, 51, 102, 0.06);
+    color: var(--acme-primary);
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.85em;
+}
+
+.doc-lead {
+    font-size: 1.02rem;
+    color: var(--acme-text);
+}
+
+/* --- Listas de pasos numerados --- */
+.doc-steps {
+    counter-reset: doc-step;
+    list-style: none;
+    padding-left: 0;
+}
+
+.doc-steps > li {
+    counter-increment: doc-step;
+    position: relative;
+    padding-left: 2.4rem;
+    margin-bottom: 0.85rem;
+}
+
+.doc-steps > li::before {
+    content: counter(doc-step);
+    position: absolute;
+    left: 0;
+    top: 0.05rem;
+    width: 1.7rem;
+    height: 1.7rem;
+    border-radius: 50%;
+    background-color: var(--acme-primary);
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* --- Listas de campos y de tips --- */
+.doc-fields,
+.doc-tips {
+    padding-left: 1.1rem;
+}
+
+.doc-fields > li,
+.doc-tips > li {
+    margin-bottom: 0.5rem;
+}
+
+.doc-tips {
+    list-style: none;
+    padding-left: 0;
+}
+
+.doc-tips > li {
+    position: relative;
+    padding-left: 1.6rem;
+}
+
+.doc-tips > li::before {
+    content: "\F26A"; /* bi-lightbulb */
+    font-family: "bootstrap-icons";
+    position: absolute;
+    left: 0;
+    top: 0;
+    color: var(--acme-secondary);
+}
+
+/* --- Glosario y preguntas frecuentes --- */
+.doc-glossary,
+.doc-faq {
+    margin-bottom: 0;
+}
+
+.doc-glossary dt,
+.doc-faq dt {
+    font-weight: 600;
+    color: var(--acme-primary);
+    margin-top: 0.9rem;
+}
+
+.doc-glossary dd,
+.doc-faq dd {
+    margin-left: 0;
+    padding-left: 0.9rem;
+    border-left: 2px solid rgba(0, 168, 204, 0.35);
+    color: var(--acme-text-muted);
+}
+
+/* --- Recuadros de aviso --- */
+.doc-callout {
+    border-radius: 10px;
+    padding: 0.9rem 1.1rem;
+    margin: 1.1rem 0;
+    border-left: 4px solid;
+    font-size: 0.95rem;
+}
+
+.doc-callout-info {
+    background-color: rgba(0, 168, 204, 0.08);
+    border-left-color: var(--acme-secondary);
+}
+
+.doc-callout-tip {
+    background-color: rgba(25, 135, 84, 0.08);
+    border-left-color: #198754;
+}
+
+.doc-callout-warn {
+    background-color: rgba(255, 193, 7, 0.12);
+    border-left-color: #ffc107;
+}
+
+.doc-quote {
+    background-color: var(--acme-bg);
+    border-left: 3px solid var(--acme-secondary);
+    border-radius: 0 8px 8px 0;
+    padding: 0.75rem 1rem;
+    margin: 0.6rem 0 0;
+    font-style: italic;
+    color: var(--acme-text-muted);
+    font-size: 0.94rem;
+}
+
+/* --- Tablas --- */
+.doc-table {
+    font-size: 0.92rem;
+}
+
+.doc-table thead th {
+    background-color: var(--acme-bg);
+    color: var(--acme-primary);
+    font-weight: 600;
+    border-bottom: 2px solid rgba(0, 0, 0, 0.08);
+}
+
+.doc-table td,
+.doc-table th {
+    vertical-align: top;
+}
+
+/* Tabla ancha en pantalla chica: scrollea sola, sin romper el layout. */
+.doc-section .table-responsive,
+.doc-section > table {
+    display: block;
+    overflow-x: auto;
+}
+
+/* --- Resaltado del buscador --- */
+.doc-hit {
+    background-color: #fff3cd;
+    border-radius: 3px;
+    padding: 0 2px;
+}
+
+/* --- Botón "volver arriba" --- */
+.doc-top {
+    position: fixed;
+    right: 1.5rem;
+    bottom: 1.5rem;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: none;
+    background-color: var(--acme-primary);
+    color: #fff;
+    box-shadow: var(--shadow-md);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1030;
+    transition: var(--transition);
+}
+
+.doc-top:hover {
+    background-color: var(--acme-primary-hover);
+}
+
+.doc-top.visible {
+    display: flex;
+}
+
+/* --- Responsive: el índice pasa arriba y deja de ser pegajoso --- */
+@media (max-width: 991.98px) {
+    .doc-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .doc-toc-inner {
+        position: static;
+        max-height: none;
+    }
+
+    .doc-toc-nav {
+        max-height: 220px;
+        overflow-y: auto;
+    }
+
+    .doc-section {
+        padding: 1.25rem;
+    }
+
+    .doc-search-wrap {
+        min-width: 100%;
+    }
+}
+
+/* --- Impresión: el manual tiene que poder imprimirse limpio --- */
+@media print {
+    .doc-toc,
+    .doc-search-wrap,
+    .doc-top,
+    .navbar,
+    .footer {
+        display: none !important;
+    }
+
+    .doc-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .doc-section {
+        box-shadow: none;
+        border: 1px solid #ddd;
+        break-inside: avoid;
+    }
+}
+
+/* Enlace al tutorial guiado, arriba de los capítulos que tienen uno. El manual
+   explica y el tutorial muestra: conviene que se encuentren. */
+.doc-tutorial-link {
+    margin-top: -0.25rem;
+    margin-bottom: 1rem;
+}

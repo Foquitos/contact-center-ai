@@ -1,0 +1,219 @@
+{
+  "bot": "voltara",
+  "descripcion": "Set dorado del bot telefónico de Voltara. Las preguntas salen del tráfico real (pagina_web.query_chatbots_logs); el campo 'veces' es cuántas veces la hizo un operador. 'doc_esperado' es el título del documento de pagina_web.ChatbotDocMarkdown que debería responderla.",
+  "no_debe_traer": [
+    "Plantillas y Modelos de Respuesta Digital a Clientes"
+  ],
+  "nota_contaminacion": "El catálogo de cartas es del bot Digital: si aparece en el contexto del telefónico, está desplazando conocimiento de procedimientos.",
+  "casos": [
+    {
+      "pregunta": "cambio de titularidad",
+      "doc_esperado": "Trámites Contractuales, Altas, Bajas y Cambios de Titularidad",
+      "debe_contener": ["titularidad"],
+      "veces": 103
+    },
+    {
+      "pregunta": "que documentación necesito para un cambio de titularidad",
+      "doc_esperado": "Trámites Contractuales, Altas, Bajas y Cambios de Titularidad",
+      "debe_contener": ["DNI"],
+      "veces": 7
+    },
+    {
+      "pregunta": "alta de suministro",
+      "doc_esperado": "Trámites Contractuales, Altas, Bajas y Cambios de Titularidad",
+      "debe_contener": ["DCI", "suministro"],
+      "veces": 42
+    },
+    {
+      "pregunta": "que documentacion tiene que enviar el cliente para poder hacer el alta de suministro",
+      "doc_esperado": "Trámites Contractuales, Altas, Bajas y Cambios de Titularidad",
+      "debe_contener": ["DNI"],
+      "veces": 8
+    },
+    {
+      "pregunta": "documentacion para baja de suministro",
+      "doc_esperado": "Trámites Contractuales, Altas, Bajas y Cambios de Titularidad",
+      "debe_contener": ["baja"],
+      "veces": 27
+    },
+    {
+      "pregunta": "el permiso de luz de obra tiene vigencia?",
+      "doc_esperado": "Trámites Contractuales, Altas, Bajas y Cambios de Titularidad",
+      "debe_contener": ["obra"],
+      "veces": 1,
+      "nota": "falló el 2026-07-30"
+    },
+    {
+      "pregunta": "luz de riego",
+      "doc_esperado": "Trámites Contractuales, Altas, Bajas y Cambios de Titularidad",
+      "debe_contener": ["riego"],
+      "veces": 1,
+      "nota": "calificada 3/10 el 2026-03-04"
+    },
+    {
+      "pregunta": "aumento de potencia",
+      "doc_esperado": "Trámites Contractuales, Altas, Bajas y Cambios de Titularidad",
+      "debe_contener": ["potencia"],
+      "veces": 19
+    },
+    {
+      "pregunta": "medidor quemado",
+      "doc_esperado": "Atención de Emergencias Técnicas, Reclamos de Red y Medidores",
+      "debe_contener": ["medidor"],
+      "veces": 29
+    },
+    {
+      "pregunta": "unico afectado",
+      "doc_esperado": "Atención de Emergencias Técnicas, Reclamos de Red y Medidores",
+      "debe_contener": ["afectado"],
+      "veces": 9
+    },
+    {
+      "pregunta": "problemas reiterados de tension",
+      "doc_esperado": "Atención de Emergencias Técnicas, Reclamos de Red y Medidores",
+      "debe_contener": ["tensión"],
+      "veces": 12
+    },
+    {
+      "pregunta": "artefactos dañados",
+      "doc_esperado": "Atención de Emergencias Técnicas, Reclamos de Red y Medidores",
+      "debe_contener": ["artefacto"],
+      "veces": 24
+    },
+    {
+      "pregunta": "robo de medidor",
+      "doc_esperado": "Atención de Emergencias Técnicas, Reclamos de Red y Medidores",
+      "debe_contener": ["medidor"],
+      "veces": 15
+    },
+    {
+      "pregunta": "traslado de medidor",
+      "doc_esperado": "Atención de Emergencias Técnicas, Reclamos de Red y Medidores",
+      "debe_contener": ["medidor"],
+      "veces": 11
+    },
+    {
+      "pregunta": "clte manifiesta que le cortaron la luz erroneamente",
+      "doc_esperado": "Atención de Emergencias Técnicas, Reclamos de Red y Medidores",
+      "debe_contener": ["corte"],
+      "veces": 1,
+      "nota": "falló el 2026-07-29"
+    },
+    {
+      "pregunta": "que es un edep?",
+      "doc_esperado": "Régimen y Gestión de Usuarios Electrodependientes (EDEP)",
+      "debe_contener": ["electrodependiente"],
+      "veces": 14
+    },
+    {
+      "pregunta": "protocolo de electrodependientes",
+      "doc_esperado": "Régimen y Gestión de Usuarios Electrodependientes (EDEP)",
+      "debe_contener": ["RECS"],
+      "veces": 9,
+      "nota": "calificada 4/10: 'esta incompleto el protocolo'"
+    },
+    {
+      "pregunta": "cliente sin luz electrodependiente",
+      "doc_esperado": "Régimen y Gestión de Usuarios Electrodependientes (EDEP)",
+      "debe_contener": ["autonomía"],
+      "veces": 1,
+      "nota": "calificada 1/10 el 2025-12-19"
+    },
+    {
+      "pregunta": "fallecio cliente electrodependiente",
+      "doc_esperado": "Régimen y Gestión de Usuarios Electrodependientes (EDEP)",
+      "debe_contener": ["electrodependiente"],
+      "veces": 7,
+      "nota": "falla 6 de 7 veces"
+    },
+    {
+      "pregunta": "que cartas debo enviar para asesoramiento de FAE",
+      "doc_esperado": "Régimen y Gestión de Usuarios Electrodependientes (EDEP)",
+      "debe_contener": ["FAE"],
+      "veces": 1,
+      "nota": "calificada 1/10 el 2025-12-16"
+    },
+    {
+      "pregunta": "tarifa social",
+      "doc_esperado": "Facturación, Medios de Pago, Cobranzas y Subsidios",
+      "debe_contener": ["tarifa social"],
+      "veces": 20
+    },
+    {
+      "pregunta": "debito automatico",
+      "doc_esperado": "Facturación, Medios de Pago, Cobranzas y Subsidios",
+      "debe_contener": ["débito"],
+      "veces": 18
+    },
+    {
+      "pregunta": "convenio de pago",
+      "doc_esperado": "Facturación, Medios de Pago, Cobranzas y Subsidios",
+      "debe_contener": ["convenio"],
+      "veces": 8
+    },
+    {
+      "pregunta": "dar de baja convenio",
+      "doc_esperado": "Facturación, Medios de Pago, Cobranzas y Subsidios",
+      "debe_contener": ["convenio"],
+      "veces": 2,
+      "nota": "falló el 2026-07-29"
+    },
+    {
+      "pregunta": "comprobante de pago",
+      "doc_esperado": "Facturación, Medios de Pago, Cobranzas y Subsidios",
+      "debe_contener": ["pago"],
+      "veces": 13
+    },
+    {
+      "pregunta": "nota de debito",
+      "doc_esperado": "Facturación, Medios de Pago, Cobranzas y Subsidios",
+      "debe_contener": ["débito"],
+      "veces": 23
+    },
+    {
+      "pregunta": "el plan de pago es unicamente para el saldo exigible?",
+      "doc_esperado": "Facturación, Medios de Pago, Cobranzas y Subsidios",
+      "debe_contener": ["exigible"],
+      "veces": 1,
+      "nota": "falló el 2026-07-30"
+    },
+    {
+      "pregunta": "el subsidio se da por direccion o por cliente?",
+      "doc_esperado": "Facturación, Medios de Pago, Cobranzas y Subsidios",
+      "debe_contener": ["subsidio"],
+      "veces": 1,
+      "nota": "calificada 6/10"
+    },
+    {
+      "pregunta": "reversa de pagos",
+      "doc_esperado": "Facturación, Medios de Pago, Cobranzas y Subsidios",
+      "debe_contener": ["pago"],
+      "veces": 1,
+      "nota": "calificada 5/10"
+    },
+    {
+      "pregunta": "atencion comercial tarifa 2",
+      "doc_esperado": "Gestión Operativa y Comercial para Grandes Clientes (Tarifas T2 y T3)",
+      "debe_contener": ["T2"],
+      "veces": 1
+    },
+    {
+      "pregunta": "grandes clientes tarifa 3",
+      "doc_esperado": "Gestión Operativa y Comercial para Grandes Clientes (Tarifas T2 y T3)",
+      "debe_contener": ["T3"],
+      "veces": 1
+    },
+    {
+      "pregunta": "como valido una DCI del colegio de tecnicos",
+      "doc_esperado": "Validación de DCI, Cuentas No Cliente y Protocolos de Atención",
+      "debe_contener": ["SIGMA"],
+      "veces": 1
+    },
+    {
+      "pregunta": "validacion de dci colegio de ingenieros",
+      "doc_esperado": "Validación de DCI, Cuentas No Cliente y Protocolos de Atención",
+      "debe_contener": ["QR"],
+      "veces": 1
+    }
+  ]
+}

@@ -1,0 +1,326 @@
+/* Importar fuente moderna Inter */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+    /* --- Paleta Corporativa Acme Solutions --- */
+    --acme-primary: #003366;       /* Azul Oscuro Principal */
+    --acme-primary-hover: #002244; /* Azul más oscuro para hovers */
+    --acme-secondary: #00a8cc;     /* Cian/Teal para detalles */
+    --acme-bg: #f4f6f9;            /* Fondo general gris muy suave */
+    --acme-surface: #ffffff;       /* Blanco puro para tarjetas */
+    --acme-text: #333333;          /* Texto principal */
+    --acme-text-muted: #6c757d;    /* Texto secundario */
+    
+    /* --- Variables de UI --- */
+    --card-radius: 12px;
+    --btn-radius: 8px;
+    --input-radius: 8px;
+    --shadow-sm: 0 2px 8px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 16px rgba(0,0,0,0.08);
+    --transition: all 0.2s ease-in-out;
+}
+
+body {
+    background-color: var(--acme-bg);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    color: var(--acme-text);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden; /* Previene scroll horizontal en la página entera */
+}
+
+/* --- Navbar Mejorada --- */
+.navbar {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+    box-shadow: var(--shadow-sm) !important;
+    position: relative;
+    z-index: 1050; /* Mantiene el menú POR ENCIMA del contenido */
+}
+
+.navbar-logo {
+    height: 45px;
+    transition: var(--transition);
+}
+
+.navbar-logo:hover {
+    transform: scale(1.05);
+}
+
+.nav-link {
+    font-weight: 500;
+    color: var(--acme-text-muted) !important;
+    transition: var(--transition);
+    border-radius: 6px;
+    padding: 0.5rem 1rem !important;
+}
+
+.nav-link:hover, .nav-link.active {
+    color: var(--acme-primary) !important;
+    background-color: rgba(0, 51, 102, 0.05);
+}
+
+/* --- Dropdowns del menú --- */
+.navbar .dropdown-menu {
+    border: 1px solid rgba(0,0,0,0.06);
+    border-radius: var(--card-radius);
+    box-shadow: var(--shadow-md);
+    padding: 0.5rem;
+    margin-top: 0.4rem;
+}
+
+.navbar .dropdown-item {
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    color: var(--acme-text);
+    display: flex;
+    align-items: center;
+}
+
+/* Los iconos del menú de usuario heredan su color (ej. Cerrar Sesión en rojo),
+   así que el gris de apoyo se aplica solo a los dropdowns del menú principal. */
+.navbar .dropdown-item i {
+    width: 1.1em;
+}
+
+.navbar .dropdown-menu-grouped .dropdown-item i {
+    color: var(--acme-text-muted);
+}
+
+.navbar .dropdown-item:hover {
+    background-color: rgba(0, 51, 102, 0.05);
+    color: var(--acme-primary);
+}
+
+.navbar .dropdown-menu-grouped .dropdown-item:hover i {
+    color: var(--acme-primary);
+}
+
+.navbar .dropdown-item.active {
+    background-color: var(--acme-primary);
+    color: #fff;
+}
+
+.navbar .dropdown-item.active i {
+    color: #fff;
+}
+
+/* Encabezados de grupo: separan bloques dentro de un mismo dropdown.
+   Scopeado a .dropdown-menu-grouped para no pisar el menú de usuario. */
+.navbar .dropdown-menu-grouped .dropdown-header {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--acme-text-muted);
+    padding: 0.4rem 0.75rem 0.25rem;
+}
+
+.navbar .dropdown-divider {
+    margin: 0.4rem 0.25rem;
+}
+
+/* --- Tarjetas (Cards) Modernas --- */
+.card {
+    background-color: var(--acme-surface);
+    border: none;
+    border-radius: var(--card-radius);
+    box-shadow: var(--shadow-sm);
+    transition: var(--transition);
+    overflow: hidden;
+}
+
+.card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-md);
+}
+
+.card-header {
+    background-color: transparent;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+    padding: 1.25rem 1.5rem;
+    font-weight: 600;
+    color: var(--acme-primary);
+}
+
+/* Excepción para headers con color de fondo explícito */
+.card-header[class*="bg-"] {
+    border-bottom: none;
+    color: white;
+}
+
+/* --- Botones --- */
+.btn {
+    border-radius: var(--btn-radius);
+    font-weight: 500;
+    padding: 0.5rem 1.25rem;
+    transition: var(--transition);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.btn-primary {
+    background-color: var(--acme-primary);
+    border-color: var(--acme-primary);
+}
+
+.btn-primary:hover, .btn-primary:active, .btn-primary:focus {
+    background-color: var(--acme-primary-hover);
+    border-color: var(--acme-primary-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 51, 102, 0.2);
+}
+
+.btn-outline-secondary {
+    border-color: #dee2e6;
+    color: var(--acme-text-muted);
+}
+
+.btn-outline-secondary:hover {
+    background-color: #f8f9fa;
+    color: var(--acme-text);
+    border-color: #c4c8cb;
+}
+
+/* --- Inputs y Formularios --- */
+.form-control, .form-select {
+    border-radius: var(--input-radius);
+    border: 1px solid #dee2e6;
+    padding: 0.6rem 1rem;
+    transition: var(--transition);
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: var(--acme-secondary);
+    box-shadow: 0 0 0 4px rgba(0, 168, 204, 0.1);
+}
+
+/* Fix para Select2 en Bootstrap 5 */
+.select2-container--bootstrap-5 .select2-selection {
+    border-radius: var(--input-radius) !important;
+    min-height: 42px !important;
+    padding-top: 4px;
+    border-color: #dee2e6 !important;
+}
+
+/* --- Home: grilla de accesos --- */
+.home-hero h1 {
+    font-weight: 600;
+    color: var(--acme-primary);
+}
+
+.home-tip {
+    border: none;
+    border-left: 4px solid var(--acme-secondary);
+    border-radius: var(--btn-radius);
+    background-color: rgba(0, 168, 204, 0.08);
+    color: var(--acme-text);
+}
+
+.home-section-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--acme-text-muted);
+    margin-bottom: 0.75rem;
+}
+
+.home-card {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    height: 100%;
+    padding: 1rem;
+    background-color: var(--acme-surface);
+    border: 1px solid rgba(0,0,0,0.05);
+    border-radius: var(--card-radius);
+    box-shadow: var(--shadow-sm);
+    text-decoration: none;
+    color: inherit;
+    transition: var(--transition);
+}
+
+.home-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: rgba(0, 51, 102, 0.15);
+    color: inherit;
+}
+
+.home-card-icon {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background-color: rgba(0, 51, 102, 0.07);
+    color: var(--acme-primary);
+    font-size: 1.25rem;
+    transition: var(--transition);
+}
+
+.home-card:hover .home-card-icon {
+    background-color: var(--acme-primary);
+    color: #fff;
+}
+
+.home-card-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0; /* deja que el texto largo se ajuste en vez de desbordar */
+}
+
+.home-card-title {
+    font-weight: 600;
+    color: var(--acme-primary);
+    line-height: 1.3;
+}
+
+.home-card-desc {
+    font-size: 0.85rem;
+    color: var(--acme-text-muted);
+    line-height: 1.35;
+}
+
+.home-card-arrow {
+    margin-left: auto;
+    color: var(--acme-text-muted);
+    opacity: 0;
+    transition: var(--transition);
+}
+
+.home-card:hover .home-card-arrow {
+    opacity: 1;
+    color: var(--acme-primary);
+}
+
+/* En pantallas chicas la flecha no aporta y roba ancho al texto */
+@media (max-width: 575.98px) {
+    .home-card-arrow { display: none; }
+}
+
+/* --- Ancho de página --- */
+/* Alternativa al .container de Bootstrap para pantallas con tablas anchas, logs o
+   dashboards: usa todo el viewport pero con un tope alto para que en monitores muy
+   grandes las filas no queden imposibles de seguir con la vista. */
+.container-wide {
+    width: 100%;
+    max-width: 1800px;
+    margin-inline: auto;
+    padding-inline: 1.5rem;
+}
+
+@media (max-width: 767.98px) {
+    .container-wide { padding-inline: 0.75rem; }
+}
+
+/* --- Utilidades --- */
+.text-primary { color: var(--acme-primary) !important; }
+.bg-light { background-color: #f8f9fa !important; }
+/* Utilidades que el markup ya usaba pero que Bootstrap 5.3 NO trae (o sea que
+   no hacían nada). Se definen acá en vez de sacarlas del HTML porque el efecto
+   que se buscaba es el correcto; lo que faltaba era la regla.
+   `border-dashed`: el recuadro de "subí tus audios" en /Auditoria se dibujaba
+   con borde sólido, perdiendo la pista visual de zona de carga. */
+.border-dashed { border-style: dashed !important; }

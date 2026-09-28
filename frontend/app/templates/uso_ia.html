@@ -1,0 +1,695 @@
+{% extends "layout.html" %}
+
+{% block title %}Gastos y Logs de IA{% endblock %}
+
+{% block styles %}
+    {{ super() }}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/uso_ia.css') }}">
+{% endblock %}
+
+{% block page_container %}container-wide{% endblock %}
+
+{% block content %}
+<div class="uso-ia-page py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            <h4 class="mb-0"><i class="bi bi-cash-coin me-1"></i>Gastos y Logs de IA</h4>
+            <small class="text-muted">Consumo de la API de Gemini en auditorías · costos en USD{% if session.get('is_super_admin') or 'uso_ia.chatbot' in session.get('permissions', []) %} ·
+                el chatbot tiene su <a href="{{ url_for('costos.uso_ia_chatbot_view') }}">sección propia</a>{% endif %}</small>
+        </div>
+    </div>
+
+    <!-- Filtro de fechas: aplica a las 3 pestañas -->
+    <form id="filtros-form" class="card card-body mb-3 shadow-sm">
+        <div class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label mb-1">Desde</label>
+                <input type="date" id="f-desde" class="form-control form-control-sm">
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Hasta</label>
+                <input type="date" id="f-hasta" class="form-control form-control-sm">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-funnel me-1"></i>Aplicar
+                </button>
+            </div>
+            <div class="col-auto">
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn btn-outline-secondary" data-rango="ytd">Este año</button>
+                    <button type="button" class="btn btn-outline-secondary" data-rango="12m">Últimos 12 meses</button>
+                    <button type="button" class="btn btn-outline-secondary" data-rango="mes">Este mes</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Segmentadores: acotan Resumen y Actividad (la pestaña Solicitudes tiene
+             sus propios filtros por fila). Empresa/Campaña/Modelo se llenan desde
+             /api/uso-ia/segmentos; Modo es fijo. -->
+        <div class="row g-2 align-items-end mt-1 pt-2 border-top">
+            <div class="col-auto">
+                <label class="form-label mb-1 small text-muted"><i class="bi bi-funnel-fill me-1"></i>Segmentar por</label>
+            </div>
+            <div class="col-auto">
+                <select id="seg-empresa" class="form-select form-select-sm" style="min-width: 9rem;" title="Empresa">
+                    <option value="">Toda empresa</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <select id="seg-campana" class="form-select form-select-sm" style="min-width: 11rem;" title="Campaña">
+                    <option value="">Toda campaña</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <select id="seg-modelo" class="form-select form-select-sm" style="min-width: 10rem;" title="Modelo de Gemini">
+                    <option value="">Todo modelo</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <select id="seg-modo" class="form-select form-select-sm" title="Modo">
+                    <option value="">Todo modo</option>
+                    <option value="sync">Sincrónico</option>
+                    <option value="batch">Batch</option>
+                    {# Flex: sincrónico pero al mismo precio que Batch (mitad del estándar).
+                       Lo usan las transcripciones que se piden de a una desde el reproductor. #}
+                    <option value="flex">Flex</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="button" id="seg-limpiar" class="btn btn-outline-secondary btn-sm" title="Quitar segmentadores">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="col text-end">
+                <small id="estado-resultado" class="text-muted text-nowrap"></small>
+            </div>
+        </div>
+    </form>
+
+    <!-- Pestañas -->
+    <ul class="nav nav-tabs mb-3" id="uso-ia-tabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="tab-resumen" data-bs-toggle="tab" data-bs-target="#pane-resumen"
+                    type="button" role="tab"><i class="bi bi-graph-up me-1"></i>Resumen</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-actividad" data-bs-toggle="tab" data-bs-target="#pane-actividad"
+                    type="button" role="tab"><i class="bi bi-activity me-1"></i>Actividad</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-solicitudes" data-bs-toggle="tab" data-bs-target="#pane-solicitudes"
+                    type="button" role="tab"><i class="bi bi-list-check me-1"></i>Solicitudes</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-analisis" data-bs-toggle="tab" data-bs-target="#pane-analisis"
+                    type="button" role="tab"><i class="bi bi-calculator me-1"></i>Análisis</button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+
+        <!-- ================= RESUMEN ================= -->
+        <div class="tab-pane fade show active" id="pane-resumen" role="tabpanel">
+
+            <!-- Presupuesto mensual (siempre del mes en curso, no depende del rango de arriba) -->
+            <div class="card shadow-sm mb-3">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div class="flex-grow-1" style="min-width: 280px;">
+                            <div class="d-flex justify-content-between">
+                                <small class="text-muted"><i class="bi bi-piggy-bank me-1"></i>Presupuesto del mes <span id="pres-mes"></span></small>
+                                <small id="pres-detalle" class="text-muted">Cargando…</small>
+                            </div>
+                            <div class="progress mt-1" style="height: 10px;" title="Gasto del mes en curso sobre el presupuesto configurado">
+                                <div id="pres-barra" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                            </div>
+                            <small id="pres-umbrales" class="text-muted"></small>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#pres-config">
+                            <i class="bi bi-gear me-1"></i>Configurar
+                        </button>
+                    </div>
+                    <div class="collapse mt-2" id="pres-config">
+                        <form id="pres-form" class="row g-2 align-items-end">
+                            <div class="col-auto">
+                                <label class="form-label mb-1 small">Presupuesto mensual (USD)</label>
+                                <input type="number" id="pres-monto" class="form-control form-control-sm" min="1" step="0.01" required style="width: 11rem;">
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label mb-1 small">Umbrales de aviso (%)</label>
+                                <input type="text" id="pres-umbrales-input" class="form-control form-control-sm" value="50,75,90,100"
+                                       title="Porcentajes separados por coma; cada umbral avisa por mail una sola vez por mes" style="width: 11rem;">
+                            </div>
+                            <div class="col flex-grow-1">
+                                <label class="form-label mb-1 small">Destinatarios extra (además del admin, separados por ";")</label>
+                                <input type="text" id="pres-destinatarios" class="form-control form-control-sm" placeholder="finanzas@ejemplo.com; gerencia@ejemplo.com">
+                            </div>
+                            <div class="col-auto">
+                                <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-check-lg me-1"></i>Guardar</button>
+                            </div>
+                            <div class="col-12"><small id="pres-estado" class="text-muted"></small></div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3" id="kpis">
+                <div class="col-md-3 col-6">
+                    <div class="card shadow-sm h-100 kpi-card">
+                        <div class="card-body">
+                            <div class="kpi-label">Costo total (USD)</div>
+                            <div class="kpi-value" id="kpi-costo">—</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 col-6">
+                    <div class="card shadow-sm h-100 kpi-card">
+                        <div class="card-body">
+                            <div class="kpi-label">Tokens totales</div>
+                            <div class="kpi-value" id="kpi-tokens">—</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-6">
+                    <div class="card shadow-sm h-100 kpi-card">
+                        <div class="card-body">
+                            <div class="kpi-label">Llamadas a la IA</div>
+                            <div class="kpi-value" id="kpi-llamadas">—</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-6">
+                    <div class="card shadow-sm h-100 kpi-card">
+                        <div class="card-body">
+                            <div class="kpi-label" title="Promedio de las auditorías sincrónicas; el batch se muestra aparte porque cuesta la mitad por token">Costo por auditoría</div>
+                            <div class="kpi-value" id="kpi-costo-auditoria">—</div>
+                            <div class="small text-muted" id="kpi-costo-auditoria-detalle"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-6">
+                    <div class="card shadow-sm h-100 kpi-card">
+                        <div class="card-body">
+                            <div class="kpi-label" title="El modo Batch cuesta 50% menos: lo pagado en batch equivale a lo ahorrado">Ahorro por Batch</div>
+                            <div class="kpi-value text-success" id="kpi-ahorro-batch">—</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-lg-6">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header py-2 d-flex justify-content-between align-items-center gap-2">
+                            <strong>Costo por mes (USD)</strong>
+                            <!-- Mismo apilado, dos lecturas: en qué modelo se gastó
+                                 cada mes o en qué uso (ver uso_ia.js::dimensionMes). -->
+                            <div class="btn-group btn-group-sm header-toggle" role="group" aria-label="Desglose del costo mensual">
+                                <input type="radio" class="btn-check" name="mes-dim" id="mes-dim-modelo" value="modelo" checked>
+                                <label class="btn btn-outline-secondary" for="mes-dim-modelo">Por modelo</label>
+                                <input type="radio" class="btn-check" name="mes-dim" id="mes-dim-feature" value="feature">
+                                <label class="btn btn-outline-secondary" for="mes-dim-feature">Por uso</label>
+                            </div>
+                        </div>
+                        <div class="card-body"><div class="chart-container"><canvas id="chart-mes"></canvas></div></div>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header py-2"><strong>Costo por uso</strong></div>
+                        <div class="card-body"><div class="chart-container"><canvas id="chart-feature"></canvas></div></div>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header py-2"><strong>Costo por modelo</strong></div>
+                        <div class="card-body"><div class="chart-container"><canvas id="chart-modelo"></canvas></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detalle de costo por uso: la tabla que abre el doughnut de arriba.
+                 Ancho completo porque es LA pregunta de la página (en qué se va el
+                 gasto) y no entra en media pantalla: costo, participación, costo
+                 promedio por llamada, reparto sync/batch y tokens por tipo. Cada
+                 fila se despliega en los modelos que la componen. -->
+            <div class="row g-3 mb-3">
+                <div class="col-12">
+                    <div class="card shadow-sm">
+                        <div class="card-header py-2 d-flex justify-content-between align-items-center gap-2">
+                            <strong>Detalle de costo por uso</strong>
+                            <div class="d-flex align-items-center gap-3">
+                                <span class="header-nota d-none d-md-inline">Clic en una fila para abrirla por modelo</span>
+                                <button type="button" id="btn-csv-feature" class="btn btn-outline-secondary btn-sm"
+                                        title="Descargar el detalle (incluye la apertura por modelo) en CSV">
+                                    <i class="bi bi-download me-1"></i>CSV
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0 align-middle tabla-uso">
+                                <thead><tr>
+                                    <th data-sort="label" data-dir="asc">Uso</th>
+                                    <th class="text-end" data-sort="costo">Costo USD</th>
+                                    <th class="text-end" data-sort="pct">% del total</th>
+                                    <th class="text-end" data-sort="prom" title="Costo promedio de cada llamada a la IA de ese uso">Costo prom.</th>
+                                    <th class="text-end" data-sort="llamadas">Llamadas</th>
+                                    <th class="text-end" data-sort="modo" title="Reparto de las llamadas entre sincrónico y Batch (el Batch cuesta la mitad por token)">Sync / Batch</th>
+                                    <th class="text-end" data-sort="entrada" title="Tokens enviados al modelo (prompt, audio, adjuntos)">Entrada</th>
+                                    <th class="text-end" data-sort="salida" title="Tokens de la respuesta">Salida</th>
+                                    <th class="text-end" data-sort="razonamiento" title="Tokens de pensamiento interno del modelo (se pagan como salida)">Razonamiento</th>
+                                    <th class="text-end" data-sort="tokens">Total tokens</th>
+                                </tr></thead>
+                                <tbody id="tabla-feature"></tbody>
+                                <tfoot id="tabla-feature-total"></tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-lg-7">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header py-2"><strong>Top campañas por costo</strong></div>
+                        <!-- La altura la ajusta renderBarrasH según la cantidad de campañas. -->
+                        <div class="card-body"><div class="chart-container chart-container-sm"><canvas id="chart-campana"></canvas></div></div>
+                    </div>
+                </div>
+                <div class="col-lg-5">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header py-2"><strong>Detalle por modelo</strong></div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0 align-middle">
+                                <thead><tr><th data-sort="label" data-dir="asc">Modelo</th><th class="text-end" data-sort="costo">Costo USD</th><th class="text-end" data-sort="tokens">Tokens</th><th class="text-end" data-sort="llamadas">Llamadas</th></tr></thead>
+                                <tbody id="tabla-modelo"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= ACTIVIDAD ================= -->
+        <!-- Operación (no gasto): volumen de auditorías por campaña/usuario/etc.,
+             origen, estado y patrón temporal. Fuente: calidad.AuditExecutionLog
+             (1 fila = 1 corrida) vía /api/uso-ia/actividad. -->
+        <div class="tab-pane fade" id="pane-actividad" role="tabpanel">
+            <p class="text-muted small mb-3">
+                Operación de las auditorías (más allá del gasto): cuántas corridas y auditorías se hicieron,
+                sobre qué campañas, quién las disparó, manual vs programada y cómo se reparten en el tiempo.
+                Una <em>corrida</em> puede auditar muchas interacciones; <em>auditorías</em> cuenta interacciones.
+            </p>
+
+            <div class="row g-3 mb-3">
+                <div class="col-md col-6">
+                    <div class="card shadow-sm h-100 kpi-card"><div class="card-body">
+                        <div class="kpi-label">Corridas</div>
+                        <div class="kpi-value" id="act-kpi-corridas">—</div>
+                    </div></div>
+                </div>
+                <div class="col-md col-6">
+                    <div class="card shadow-sm h-100 kpi-card"><div class="card-body">
+                        <div class="kpi-label" title="Interacciones auditadas (suma de filas auditadas de cada corrida)">Auditorías</div>
+                        <div class="kpi-value" id="act-kpi-auditorias">—</div>
+                    </div></div>
+                </div>
+                <div class="col-md col-6">
+                    <div class="card shadow-sm h-100 kpi-card"><div class="card-body">
+                        <div class="kpi-label" title="Corridas con estado Éxito sobre el total">Tasa de éxito</div>
+                        <div class="kpi-value" id="act-kpi-exito">—</div>
+                    </div></div>
+                </div>
+                <div class="col-md col-6">
+                    <div class="card shadow-sm h-100 kpi-card"><div class="card-body">
+                        <div class="kpi-label" title="Interacciones que fallaron/se saltearon dentro de las corridas">Errores</div>
+                        <div class="kpi-value" id="act-kpi-errores">—</div>
+                    </div></div>
+                </div>
+                <div class="col-md col-6">
+                    <div class="card shadow-sm h-100 kpi-card"><div class="card-body">
+                        <div class="kpi-label" title="Duración promedio de las corridas sincrónicas (el batch corre en diferido, no es comparable)">Duración prom. (sync)</div>
+                        <div class="kpi-value" id="act-kpi-duracion">—</div>
+                    </div></div>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-lg-8">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header py-2"><strong>Auditorías por día</strong></div>
+                        <div class="card-body"><div class="chart-container"><canvas id="chart-act-dia"></canvas></div></div>
+                    </div>
+                </div>
+                <div class="col-lg-4">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header py-2"><strong>Corridas por estado</strong></div>
+                        <div class="card-body"><div class="chart-container"><canvas id="chart-act-estado"></canvas></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-lg-7">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header py-2"><strong>Auditorías por campaña</strong></div>
+                        <div class="card-body"><div class="chart-container chart-container-sm"><canvas id="chart-act-campana"></canvas></div></div>
+                    </div>
+                </div>
+                <div class="col-lg-5">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header py-2"><strong>Quién audita más</strong></div>
+                        <div class="card-body"><div class="chart-container chart-container-sm"><canvas id="chart-act-usuario"></canvas></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-lg-3 col-sm-6">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header py-2"><strong>Origen</strong></div>
+                        <div class="card-body"><div class="chart-container chart-container-sm"><canvas id="chart-act-origen"></canvas></div></div>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-sm-6">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header py-2"><strong>Modo</strong></div>
+                        <div class="card-body"><div class="chart-container chart-container-sm"><canvas id="chart-act-modo"></canvas></div></div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header py-2"><strong>Corridas por hora del día (ARG)</strong></div>
+                        <div class="card-body"><div class="chart-container chart-container-sm"><canvas id="chart-act-hora"></canvas></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-lg-6">
+                    <div class="card shadow-sm mb-3">
+                        <div class="card-header py-2"><strong>Detalle por campaña</strong></div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0 align-middle">
+                                <thead><tr>
+                                    <th data-sort="campana" data-dir="asc">Campaña</th>
+                                    <th class="text-end" data-sort="corridas">Corridas</th>
+                                    <th class="text-end" data-sort="auditorias">Auditorías</th>
+                                    <th class="text-end" data-sort="errores">Errores</th>
+                                </tr></thead>
+                                <tbody id="tabla-act-campana"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="card shadow-sm">
+                        <div class="card-header py-2"><strong>Detalle por empresa</strong></div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0 align-middle">
+                                <thead><tr>
+                                    <th data-sort="empresa" data-dir="asc">Empresa</th>
+                                    <th class="text-end" data-sort="corridas">Corridas</th>
+                                    <th class="text-end" data-sort="auditorias">Auditorías</th>
+                                </tr></thead>
+                                <tbody id="tabla-act-empresa"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="card shadow-sm mb-3">
+                        <div class="card-header py-2"><strong>Detalle por auditor</strong></div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0 align-middle">
+                                <thead><tr>
+                                    <th data-sort="usuario" data-dir="asc">Auditor</th>
+                                    <th class="text-end" data-sort="corridas">Corridas</th>
+                                    <th class="text-end" data-sort="auditorias">Auditorías</th>
+                                </tr></thead>
+                                <tbody id="tabla-act-usuario"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="card shadow-sm">
+                        <div class="card-header py-2"><strong>Detalle por plantilla</strong></div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0 align-middle">
+                                <thead><tr>
+                                    <th data-sort="plantilla" data-dir="asc">Plantilla</th>
+                                    <th class="text-end" data-sort="corridas">Corridas</th>
+                                    <th class="text-end" data-sort="auditorias">Auditorías</th>
+                                </tr></thead>
+                                <tbody id="tabla-act-plantilla"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= SOLICITUDES ================= -->
+        <div class="tab-pane fade" id="pane-solicitudes" role="tabpanel">
+            <!-- Filtros propios de la tabla (las fechas se toman del filtro de arriba) -->
+            <form id="filtros-logs" class="card card-body mb-3 shadow-sm">
+                <div class="row g-2 align-items-end">
+                    <div class="col-auto">
+                        <label class="form-label mb-1 small">Modo</label>
+                        <select id="fl-modo" class="form-select form-select-sm">
+                            <option value="">Todos</option>
+                            <option value="sync">Sincrónico</option>
+                            <option value="batch">Batch</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label mb-1 small" title="Cuánto pensó el modelo antes de responder">Razonamiento</label>
+                        <select id="fl-nivel" class="form-select form-select-sm">
+                            <option value="">Todos</option>
+                            <option value="LOW">Bajo</option>
+                            <option value="MEDIUM">Medio</option>
+                            <option value="HIGH">Alto</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label mb-1 small">Origen</label>
+                        <select id="fl-origen" class="form-select form-select-sm">
+                            <option value="">Todos</option>
+                            <option value="manual">Manual</option>
+                            <option value="scheduler">Programada</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label mb-1 small">Estado</label>
+                        <select id="fl-estado" class="form-select form-select-sm">
+                            <option value="">Todos</option>
+                            <option value="EN_CURSO">En curso</option>
+                            <option value="EXITO">Éxito</option>
+                            <option value="PARCIAL">Parcial</option>
+                            <option value="ERROR">Error</option>
+                            <option value="SIN_DATOS">Sin datos</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label mb-1 small">Empresa</label>
+                        <input type="text" id="fl-empresa" class="form-control form-control-sm" placeholder="ID empresa" style="width: 8rem;">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label mb-1 small">Campaña</label>
+                        <input type="text" id="fl-campana" class="form-control form-control-sm" placeholder="ID campaña" style="width: 8rem;">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label mb-1 small">Usuario</label>
+                        <input type="text" id="fl-usuario" class="form-control form-control-sm"
+                               placeholder="Documento o nombre" title="Documento exacto, o parte del nombre (se busca en nómina)" style="width: 11rem;">
+                    </div>
+                    <div class="col-auto">
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            <i class="bi bi-funnel me-1"></i>Aplicar
+                        </button>
+                    </div>
+                </div>
+            </form>
+
+            <div class="card shadow-sm">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover align-middle mb-0">
+                            <thead>
+                                <!-- data-sort: claves de _LOGS_ORDEN en el backend (orden server-side,
+                                     sobre TODAS las corridas, no solo la página visible). Muestreo,
+                                     Costo y Envíos no son ordenables (Costo se calcula por fila en
+                                     Python; Tokens es el orden equivalente). -->
+                                <tr>
+                                    <!-- Desplegable: una corrida en Batch se manda a Gemini en varios
+                                         lotes (uno por cada 15 MB de audio) y cada lote cierra por su
+                                         cuenta. La fila es la corrida; acá se abre el detalle por lote. -->
+                                    <th style="width: 2.5rem"></th>
+                                    <th data-sort="inicio">Inicio (ARG)</th>
+                                    <th data-sort="modo" data-dir="asc">Modo</th>
+                                    <th data-sort="origen" data-dir="asc">Origen</th>
+                                    <th data-sort="usuario" data-dir="asc">Usuario</th>
+                                    <th data-sort="contexto" data-dir="asc">Empresa / Campaña / Plantilla</th>
+                                    <th data-sort="modelo" data-dir="asc">Modelo</th>
+                                    <th data-sort="nivel" data-dir="asc"
+                                        title="Cuánto pensó el modelo antes de responder: lo define la plantilla">Razonamiento</th>
+                                    <th class="text-end" data-sort="solicitadas">Solicitadas</th>
+                                    <th>Muestreo</th>
+                                    <th class="text-end" data-sort="auditadas">Auditadas</th>
+                                    <th class="text-end" data-sort="errores">Errores</th>
+                                    <th data-sort="duracion">Duración</th>
+                                    <th class="text-end" data-sort="tokens">Tokens</th>
+                                    <th class="text-end" title="Para ordenar por costo usá la columna Tokens (el costo se estima a partir de ellos)">Costo (USD)</th>
+                                    <th>Envíos</th>
+                                    <th data-sort="estado" data-dir="asc">Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabla-logs">
+                                <tr><td colspan="17" class="text-center text-muted py-4">Cargando…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card-footer d-flex justify-content-between align-items-center bg-white">
+                    <small class="text-muted" id="paginacion-info">—</small>
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" id="btn-anterior" class="btn btn-outline-secondary" disabled>
+                            <i class="bi bi-chevron-left"></i> Anterior
+                        </button>
+                        <button type="button" id="btn-siguiente" class="btn btn-outline-secondary" disabled>
+                            Siguiente <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= ANÁLISIS ================= -->
+        <div class="tab-pane fade" id="pane-analisis" role="tabpanel">
+            <p class="text-muted small mb-3">
+                Costo unitario de cada <strong>auditoría</strong> (solo la feature "auditoría": no mezcla
+                transcripciones ni asistente de plantillas). El promedio se muestra
+                <strong>separado por modo</strong>: el Batch cuesta exactamente la mitad por token que el
+                sincrónico, así que mezclarlos daría un número que no es el precio verdadero de ninguno.
+            </p>
+            <div class="row g-3 mb-3">
+                <div class="col-12">
+                    <div class="card shadow-sm">
+                        <div class="card-header py-2">
+                            <strong>Costo por auditoría, según nivel de razonamiento</strong>
+                        </div>
+                        <div class="card-body pb-0">
+                            <p class="text-muted small mb-2">
+                                El nivel lo define cada plantilla y decide cuánto piensa el modelo antes de
+                                responder. El precio por token es el mismo en los tres niveles —es el mismo
+                                modelo—; lo que cambia es <strong>cuántos tokens de pensamiento</strong> se
+                                gastan, y eso se paga a tarifa de salida. Las corridas anteriores al
+                                2026-08-19 no tenían nivel configurado y aparecen como «sin nivel».
+                            </p>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0 align-middle">
+                                <thead><tr>
+                                    <th>Nivel</th>
+                                    <th class="text-end">Auditorías</th>
+                                    <th class="text-end">Costo total</th>
+                                    <th class="text-end">USD por auditoría</th>
+                                    <th class="text-end" title="Tokens de pensamiento promedio por auditoría: es lo que mueve el nivel">Pensamiento prom.</th>
+                                    <th class="text-end" title="Tokens de respuesta real (el JSON de la auditoría), sin el pensamiento">Salida prom.</th>
+                                </tr></thead>
+                                <tbody id="tabla-unitario-nivel"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-xl-7">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header py-2"><strong>Costo por auditoría, según modelo</strong></div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0 align-middle">
+                                <!-- Header agrupado en 2 filas: "USD por auditoría" abarca Sync y
+                                     Batch, así las columnas quedan angostas y la tabla no desborda. -->
+                                <thead>
+                                    <tr>
+                                        <th rowspan="2" data-sort="modelo" data-dir="asc">Modelo</th>
+                                        <th rowspan="2" class="text-end" data-sort="llamadas">Auditorías</th>
+                                        <th rowspan="2" class="text-end" data-sort="costo">Costo total</th>
+                                        <th colspan="2" class="text-center">USD por auditoría</th>
+                                        <th rowspan="2" class="text-end" data-sort="tokens_prom">Tokens prom.</th>
+                                    </tr>
+                                    <tr>
+                                        <th class="text-end" data-sort="prom_sync" title="Promedio solo de las auditorías sincrónicas">Sync</th>
+                                        <th class="text-end" data-sort="prom_batch" title="Promedio solo de las auditorías batch (-50% por token)">Batch</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tabla-unitario-modelo"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-xl-5">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header py-2"><strong>Top usuarios por gasto</strong></div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0 align-middle">
+                                <thead><tr>
+                                    <th data-sort="usuario" data-dir="asc">Usuario</th>
+                                    <th class="text-end" data-sort="llamadas">Llamadas</th>
+                                    <th class="text-end" data-sort="costo">Costo USD</th>
+                                </tr></thead>
+                                <tbody id="tabla-usuarios"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-12">
+                    <div class="card shadow-sm">
+                        <div class="card-header py-2"><strong>USD por auditoría — top 10 campañas (sync vs batch)</strong></div>
+                        <!-- Ancho completo y altura ajustada por renderBarrasH según la
+                             cantidad de campañas: las barras nunca quedan apretadas. -->
+                        <div class="card-body"><div class="chart-container"><canvas id="chart-unitario-campana"></canvas></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-12">
+                    <div class="card shadow-sm">
+                        <div class="card-header py-2"><strong>Costo por auditoría, según campaña</strong></div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0 align-middle">
+                                <thead>
+                                    <tr>
+                                        <th rowspan="2" data-sort="campana" data-dir="asc">Campaña</th>
+                                        <th rowspan="2" class="text-end" data-sort="llamadas">Auditorías</th>
+                                        <th rowspan="2" class="text-end" data-sort="costo">Costo total</th>
+                                        <th colspan="2" class="text-center">USD por auditoría</th>
+                                        <th rowspan="2" class="text-end" data-sort="tokens_prom">Tokens prom.</th>
+                                    </tr>
+                                    <tr>
+                                        <th class="text-end" data-sort="prom_sync" title="Promedio solo de las auditorías sincrónicas">Sync</th>
+                                        <th class="text-end" data-sort="prom_batch" title="Promedio solo de las auditorías batch (-50% por token)">Batch</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tabla-unitario-campana"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="{{ url_for('static', filename='js/uso_ia_common.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/uso_ia.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends "layout.html" %}
+
+{% block title %}Inicio - Acme Solutions{% endblock %}
+
+{% block content %}
+
+{# La grilla se arma con el mismo dynamic_menu del navbar, que ya viene filtrado
+   por permisos: así la home nunca ofrece un acceso que el usuario no puede abrir
+   ni queda desactualizada cuando se agrega una pantalla al menú. #}
+{% set accesos_directos = dynamic_menu | selectattr('endpoint', 'defined') | list %}
+{% set secciones = dynamic_menu | selectattr('children', 'defined') | list %}
+
+{% macro tarjeta(item) %}
+<div class="col">
+    <a class="home-card" href="{{ url_for(item.endpoint) }}">
+        <span class="home-card-icon">
+            <i class="bi {{ item.icon or 'bi-arrow-right-circle' }}"></i>
+        </span>
+        <span class="home-card-text">
+            <span class="home-card-title">{{ item.label }}</span>
+            {% if item.desc %}<span class="home-card-desc">{{ item.desc }}</span>{% endif %}
+        </span>
+        <i class="bi bi-chevron-right home-card-arrow"></i>
+    </a>
+</div>
+{% endmacro %}
+
+<div class="home-hero mb-4">
+    <h1 class="h3 mb-1">Hola, {{ session.user_display_name }}</h1>
+    <p class="text-muted mb-0">¿Con qué seguimos hoy?</p>
+</div>
+
+{# Recorrido guiado: la invitación va acá porque la home es donde cae todo el mundo
+   al entrar. El botón lo levanta static/js/tutorial.js por el data-tutorial y arranca
+   en la primera pantalla del recorrido de esta persona (utils/tutorial_config.py). #}
+{% if tutorial_cfg and tutorial_cfg.recorrido %}
+<div class="alert alert-light border d-flex align-items-center flex-wrap gap-2 shadow-sm home-tutorial">
+    <i class="bi bi-signpost-split fs-4 text-primary me-1"></i>
+    <div class="flex-grow-1">
+        <strong class="d-block">¿Primera vez por acá?</strong>
+        <span class="text-muted small">
+            Te mostramos en pantalla, paso a paso, cada lugar al que tenés acceso:
+            {% for r in tutorial_cfg.recorrido %}{{ r.label }}{% if not loop.last %} · {% endif %}{% endfor %}.
+        </span>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" data-tutorial="recorrido">
+        <i class="bi bi-play-fill"></i> Empezar el recorrido
+    </button>
+</div>
+{% endif %}
+
+{% from "macros/tip_del_dia.html" import render_tip %}
+{{ render_tip(tip, id="home-tip-box") }}
+
+{% if accesos_directos %}
+<section class="mb-4">
+    <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
+        {% for item in accesos_directos %}{{ tarjeta(item) }}{% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% for seccion in secciones %}
+<section class="mb-4">
+    <h2 class="home-section-title">
+        {% if seccion.icon %}<i class="bi {{ seccion.icon }} me-2"></i>{% endif %}{{ seccion.label }}
+    </h2>
+    <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
+        {% for item in seccion.children %}{{ tarjeta(item) }}{% endfor %}
+    </div>
+</section>
+{% endfor %}
+
+{% if not accesos_directos and not secciones %}
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    Todavía no tenés ninguna sección habilitada. Pedile a un administrador que te
+    asigne un rol.
+</div>
+{% endif %}
+
+{% endblock %}

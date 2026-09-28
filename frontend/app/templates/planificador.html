@@ -1,0 +1,1676 @@
+{% extends "layout.html" %}
+
+{% block title %}Planificador{% endblock %}
+
+{% block styles %}
+    {{ super() }}
+    {# Reutiliza el sistema visual de las pantallas de consumo de IA #}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/uso_ia.css') }}">
+    <style>
+      /* Paleta de gráficos validada con el validador de la guía de visualización
+         (banda de luminosidad, piso de croma, separación para daltonismo y piso
+         de visión normal: todo PASS). El único aviso es de contraste del verde
+         contra el fondo, y lo cubre la tabla de intervalos: el dato siempre se
+         puede leer como número y no sólo como color. */
+      .viz-root {
+        color-scheme: light;
+        --surface-1:      #fcfcfb;
+        --text-primary:   #0b0b0b;
+        --text-secondary: #52514e;
+        --grid:           #e6e5e1;
+        --series-llamadas:  #2a78d6;
+        --series-linea:     #1baf7a;
+        --series-planificar:#eb6834;
+        --series-citados:   #4a3aa7;
+        --series-real:      #2a78d6;
+        --series-pronost:   #eb6834;
+        --series-ingenuo:   #8d8b85;
+      }
+      .plan-kpi { background: var(--surface-1); border: 1px solid var(--grid);
+                  border-radius: .5rem; padding: .75rem 1rem; height: 100%; }
+      .plan-kpi .valor { font-size: 1.5rem; font-weight: 600; line-height: 1.1;
+                         color: var(--text-primary); }
+      .plan-kpi .etiqueta { font-size: .78rem; color: var(--text-secondary); }
+      .plan-kpi .fuente { font-size: .7rem; color: var(--text-secondary);
+                          opacity: .85; margin-top: .15rem; }
+      .plan-chart { position: relative; height: 300px; }
+      /* Barra de cada gráfico (zoom, imagen, ampliar). Aparece al pasar el mouse
+         para no tapar las curvas; queda fija con zoom puesto, porque entonces
+         «Quitar zoom» es lo primero que se busca. */
+      .plan-chart-barra { position: absolute; top: 0; right: 0; z-index: 2;
+                          display: flex; align-items: center; gap: .25rem;
+                          opacity: 0; transition: opacity .15s; pointer-events: none; }
+      .plan-chart:hover .plan-chart-barra,
+      .plan-chart:focus-within .plan-chart-barra,
+      .plan-chart-barra:has([data-accion="reset"]:not([hidden])),
+      .plan-chart.expandido .plan-chart-barra { opacity: 1; pointer-events: auto; }
+      .plan-chart-barra .btn { --bs-btn-padding-y: .1rem; --bs-btn-padding-x: .4rem;
+                               --bs-btn-font-size: .75rem; border: 1px solid var(--grid);
+                               box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+      .plan-chart-ayuda { color: var(--text-secondary); font-size: .85rem;
+                          cursor: help; padding: 0 .2rem; }
+      .plan-chart-titulo { display: none; }
+      .plan-chart canvas { cursor: crosshair; }
+      /* Ampliado: el mismo gráfico sobre toda la ventana. */
+      .plan-chart.expandido { position: fixed; inset: 2.5vh 2.5vw; height: auto;
+                              z-index: 1090; background: var(--surface-1);
+                              border-radius: .6rem; padding: 2.6rem 1.25rem 1rem;
+                              box-shadow: 0 1rem 3rem rgba(0,0,0,.25); }
+      .plan-chart.expandido .plan-chart-barra { top: .6rem; right: .9rem; left: 1.25rem; }
+      .plan-chart.expandido .plan-chart-titulo { display: block; margin-right: auto;
+                                                 font-weight: 600; color: var(--text-primary); }
+      body.plan-chart-abierto { overflow: hidden; }
+      /* El `.card:hover` global (style.css) levanta la tarjeta con un transform, y
+         un transform en un ancestro vuelve a la tarjeta el marco del position:fixed
+         (y su overflow:hidden lo recorta): el ampliado se encerraba en la tarjeta
+         de fondo al pasar el mouse, el mouse salía y volvía a abrirse, en loop. */
+      body.plan-chart-abierto .card:has(.plan-chart.expandido) {
+        transform: none !important; transition: none; overflow: visible; }
+      body.plan-chart-abierto::after { content: ""; position: fixed; inset: 0; z-index: 1085;
+                                       background: rgba(15, 15, 15, .45); }
+      /* Las tarjetas se separan un poco del fondo al pasar: ayuda a seguir de qué
+         bloque es cada gráfico en una pantalla tan larga. */
+      .viz-root .card { transition: box-shadow .15s; }
+      .viz-root .card:hover { box-shadow: 0 .35rem 1rem rgba(0,0,0,.08) !important; }
+      .plan-kpi { transition: border-color .15s; }
+      .plan-kpi:hover { border-color: #cfcdc7; }
+      @media (max-width: 576px) { .plan-chart { height: 240px; } }
+      #tabla-intervalos-wrap { max-height: 480px; overflow: auto; }
+      .brecha-falta { color: #b3261e; font-weight: 600; }
+      .brecha-sobra { color: var(--text-secondary); }
+      .motivo-nds      { color: var(--series-llamadas); }
+      .motivo-ocup     { color: var(--series-planificar); }
+      .motivo-abandono { color: #b3261e; }
+      /* Reparto de qué restricción fijó la dotación. Barra apilada mínima: el
+         color va FIJO por familia y nunca por ranking, así que filtrar o reordenar
+         la tabla no repinta nada. El dato nunca está sólo en el color —al lado va
+         la familia que más pesa, en texto— y el detalle completo viaja en el
+         `title`, que es lo que hace legible un 3% que no se puede etiquetar. */
+      .mando-barra { display: flex; height: 8px; border-radius: 4px;
+                     overflow: hidden; background: var(--grid); min-width: 72px; }
+      .mando-barra > span { display: block; }
+      .mando-nds      { background: var(--series-llamadas); }
+      .mando-ocup     { background: var(--series-planificar); }
+      .mando-abandono { background: #b3261e; }
+      .mando-minima   { background: var(--series-ingenuo); }
+      .mando-otro     { background: var(--series-citados); }
+      /* Un día de la tabla de operadores se abre intervalo por intervalo. */
+      #tabla-dotacion tbody tr.fila-dia { cursor: pointer; }
+      #tabla-dotacion tbody tr.fila-dia:hover td { background: var(--grid); }
+      #tabla-dotacion tbody tr.fila-dia.elegido td { background: #eef3fb; }
+      #tabla-dotacion-intervalos-wrap { max-height: 520px; overflow: auto; }
+      #tabla-dotacion-intervalos thead th { position: sticky; top: 0; z-index: 1; }
+      /* Las tablas de operadores abren resumidas: el detalle es opt-in. */
+      .tabla-resumida .col-detalle { display: none; }
+      /* Un número con la cuenta en el tooltip se marca, para que se sepa que la tiene. */
+      .con-cuenta { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+      .mando-punto { display: inline-block; width: .6rem; height: .6rem;
+                     border-radius: 2px; margin-right: .3rem; vertical-align: 0; }
+      .mando-leyenda { display: flex; flex-wrap: wrap; gap: .75rem;
+                       font-size: .75rem; color: var(--text-secondary); }
+      .mando-leyenda i { display: inline-block; width: .7rem; height: .7rem;
+                         border-radius: 2px; margin-right: .3rem;
+                         vertical-align: -1px; }
+      /* Explicación al pie de cada bloque de configuración: el pedido era que
+         todo diga de dónde sale, no que haya que adivinarlo. */
+      .porque { font-size: .8rem; color: var(--text-secondary);
+                border-left: 3px solid var(--grid); padding-left: .6rem; }
+      /* El porqué de cada cosa está, pero plegado: la pantalla se había vuelto
+         ilegible de tanto texto explicativo suelto. */
+      details.porque > summary { cursor: pointer; font-weight: 600; list-style: none;
+                                 color: var(--text-secondary); }
+      details.porque > summary::before { content: "▸ "; }
+      details.porque[open] > summary::before { content: "▾ "; }
+      details.porque > div { margin-top: .4rem; }
+      .curva-paciencia td { font-variant-numeric: tabular-nums; }
+      /* La media hora en curso en el detalle de hoy. */
+      #tabla-intervalos tbody tr.fila-ahora > td { background: #fdecea; }
+      #tabla-intervalos tbody tr.fila-ahora > td:first-child {
+        box-shadow: inset 3px 0 0 #b3261e; font-weight: 600; }
+      /* Encabezados fijos en toda tabla que scrollea por dentro, y un tope de
+         alto para las largas que antes empujaban la página entera. */
+      .viz-root [style*="max-height"] > table > thead th,
+      #tabla-intervalos-wrap thead th,
+      #tabla-dotacion-intervalos-wrap thead th,
+      .tabla-alta > table > thead th {
+        position: sticky; top: 0; z-index: 1; background: #f8f9fa; }
+      .tabla-alta { max-height: 520px; overflow: auto; }
+      /* Tablas ordenables: clic en el encabezado. */
+      table.ordenable > thead th { cursor: pointer; user-select: none; white-space: nowrap; }
+      table.ordenable > thead th:hover { color: var(--text-primary); background: #eef0f2; }
+      table.ordenable > thead th[data-orden]::after {
+        font-family: "bootstrap-icons"; font-size: .7rem; margin-left: .25rem;
+        vertical-align: 0; color: var(--series-llamadas); }
+      table.ordenable > thead th[data-orden="asc"]::after { content: "\F148"; }
+      table.ordenable > thead th[data-orden="desc"]::after { content: "\F128"; }
+      .btn-copiar-tabla { --bs-btn-padding-y: .1rem; --bs-btn-padding-x: .45rem;
+                          --bs-btn-font-size: .75rem; }
+      /* Cambios sin guardar en Configuración / Laboratorio. */
+      .card.sin-guardar { border-color: #e0a800 !important;
+                          box-shadow: 0 0 0 .15rem rgba(224, 168, 0, .2) !important; }
+      .badge-sin-guardar { background: #fff3cd; color: #664d03; border: 1px solid #ffe69c;
+                           font-weight: 600; }
+      .nav-link .punto-sin-guardar { display: inline-block; width: .45rem; height: .45rem;
+                                     border-radius: 50%; background: #e0a800;
+                                     margin-left: .35rem; vertical-align: .1rem; }
+      /* Índice de cada pestaña: queda arriba al bajar y marca dónde se está. */
+      .plan-indice { position: sticky; top: 0; z-index: 1010; display: flex; gap: .25rem;
+                     overflow-x: auto; white-space: nowrap; padding: .35rem .5rem;
+                     margin: -.25rem 0 .75rem; background: rgba(252, 252, 251, .92);
+                     backdrop-filter: blur(6px); border: 1px solid var(--grid);
+                     border-radius: .5rem; font-size: .8rem; scrollbar-width: thin; }
+      .plan-indice a { color: var(--text-secondary); text-decoration: none;
+                       padding: .15rem .55rem; border-radius: 1rem; }
+      .plan-indice a:hover { background: var(--grid); color: var(--text-primary); }
+      .plan-indice a.activo { background: #e7f0fb; color: #1d5fae; font-weight: 600; }
+      .viz-root .tab-pane > .card, .viz-root .tab-pane [id^="slot-"], #seguimiento {
+        scroll-margin-top: 3.5rem; }
+      .grupo-dia > .form-select { min-width: 12.5rem !important; }
+      .rango-rapido .btn { --bs-btn-padding-y: .1rem; --bs-btn-padding-x: .5rem;
+                           --bs-btn-font-size: .75rem; }
+      kbd.atajo { background: #f1f1ef; color: var(--text-primary); border: 1px solid #d6d4cf;
+                  border-bottom-width: 2px; font-size: .75rem; padding: .05rem .4rem; }
+    </style>
+{% endblock %}
+
+{% block page_container %}container-wide{% endblock %}
+
+{% block content %}
+<div class="uso-ia-page viz-root py-3">
+
+  <div class="d-flex justify-content-between align-items-end mb-3 flex-wrap gap-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-graph-up-arrow me-1"></i>Planificador</h4>
+      <small class="text-muted">
+        Cuántas llamadas vamos a recibir en cada media hora, con cuánta gente hay
+        que cubrirlas y cuánta hay citada.
+      </small>
+      <div id="slot-encabezado" class="small mt-1"></div>
+    </div>
+    <div class="d-flex align-items-end gap-2 flex-wrap">
+      <div>
+        <label for="f-campana" class="form-label small mb-1">Campaña</label>
+        <select id="f-campana" class="form-select form-select-sm" style="min-width: 150px;">
+          <option value="20" selected>Voltara</option>
+        </select>
+      </div>
+      <div>
+        <label for="f-dias" class="form-label small mb-1">Días a recalcular</label>
+        <select id="f-dias" class="form-select form-select-sm">
+          <option value="3">3</option>
+          <option value="7">7</option>
+          <option value="14">14</option>
+          <option value="30" selected>30</option>
+        </select>
+      </div>
+      <small id="plan-actualizado" class="text-muted align-self-end pb-1"></small>
+      <button id="btn-refrescar" class="btn btn-sm btn-outline-secondary"
+              title="Vuelve a pedir el plan vigente; no recalcula (atajo: R)">
+        <i class="bi bi-arrow-clockwise me-1"></i>Volver a leer
+      </button>
+      <a id="btn-excel-plan" class="btn btn-sm btn-outline-success"
+         href="#" title="Requerimiento, pronóstico y los parámetros con los que salió">
+        <i class="bi bi-file-earmark-spreadsheet me-1"></i>Excel
+      </a>
+      {% if puede_editar %}
+      <button id="btn-recalcular" class="btn btn-sm btn-primary">
+        <i class="bi bi-cpu me-1"></i>Recalcular 30 días
+      </button>
+      {% endif %}
+      <button id="btn-atajos" class="btn btn-sm btn-outline-secondary" type="button"
+              title="Atajos de teclado (?)" aria-label="Atajos de teclado">
+        <i class="bi bi-keyboard"></i>
+      </button>
+    </div>
+  </div>
+
+  <div id="avisos"></div>
+
+  <ul class="nav nav-tabs mb-3" role="tablist">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab"
+        data-bs-target="#tab-plan" type="button">Plan</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+        data-bs-target="#tab-refuerzos" type="button">Refuerzos</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+        data-bs-target="#tab-comparacion" type="button">Comparación</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+        data-bs-target="#tab-escenarios" type="button">Escenarios</button></li>
+    {% if puede_editar %}
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+        data-bs-target="#tab-laboratorio" type="button"
+        title="Probar cambios del modelo de pronóstico antes de dejarlos vigentes">
+        <i class="bi bi-eyedropper me-1"></i>Laboratorio</button></li>
+    {% endif %}
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+        data-bs-target="#tab-config" type="button">Configuración</button></li>
+  </ul>
+
+  <div class="tab-content">
+
+  <!-- ==================================================== PLAN -->
+  <div class="tab-pane fade show active" id="tab-plan">
+
+    <!-- Cómo viene el día contra lo pronosticado. Va arriba de todo porque es lo
+         único de esta pantalla que hay que mirar HOY: el resto es planificación. -->
+    <div id="seguimiento" class="mb-3"></div>
+
+    <div class="row g-2 mb-3" id="kpis"></div>
+
+    <div id="slot-plan-semana" class="mb-3" hidden></div>
+
+    <!-- Dos gráficos separados y NO uno con dos ejes: llamadas y operadores son
+         magnitudes distintas, y superponerlas en un eje doble deja que la escala
+         elegida sugiera cualquier relación. Comparten el eje de tiempo, que es
+         lo que hace falta para leerlos juntos. -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="fw-semibold">Llamadas por intervalo</span>
+        <small class="text-muted">
+          Nuestro pronóstico, el que manda el cliente y lo que efectivamente entró.
+          Las tres son <strong>nuestras</strong> llamadas: el forecast del cliente
+          ya trae adentro el porcentaje que nos reparte.
+        </small>
+        <div class="d-flex align-items-center gap-2">
+          <label for="f-pool" class="form-label small mb-0">Pool</label>
+          <select id="f-pool" class="form-select form-select-sm" style="min-width: 220px;"></select>
+          <label for="f-dia" class="form-label small mb-0">Día</label>
+          <select id="f-dia" class="form-select form-select-sm" style="min-width: 150px;"></select>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="plan-chart"><canvas id="chart-llamadas"></canvas></div>
+        <div id="plan-cotejo" class="porque mt-2"></div>
+        <div id="pool-explicacion" class="porque mt-2"></div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-white">
+        <span class="fw-semibold">Operadores por intervalo</span>
+        <small class="text-muted ms-2">
+          Líneas continuas <strong>(a citar)</strong>: personas de la malla (A planificar, Citados, Citados + Digital).
+          Líneas punteadas <strong>(en línea)</strong>: demanda y presencia directa sobre la cola (Necesarios, Conectados telefónicos y + Digital, sin el tiempo en break y otras pausas).
+          La distancia entre <strong>Necesarios</strong> y <strong>A planificar</strong> es sobre todo pausas y break, no ausentismo: la cuenta está en la tabla, pasando el mouse por «A planificar».
+        </small>
+      </div>
+      <div class="card-body">
+        <div class="plan-chart"><canvas id="chart-operadores"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+          <span class="fw-semibold">Detalle por intervalo</span>
+          <small class="text-muted ms-2">
+            "En línea" y "Conectados" son operadores sobre la cola.
+            "A planificar", "Citados", "Brecha" y "Extras hab." son personas de la malla (con pausas y ausentismo).
+            "Real" y "Conectados" hasta el último intervalo cerrado.
+          </small>
+        </div>
+        <div class="form-check form-switch small mb-0">
+          <input class="form-check-input" type="checkbox" role="switch" id="p-detalle">
+          <label class="form-check-label" for="p-detalle">Ver todas las columnas</label>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div id="tabla-intervalos-wrap">
+          <table class="table table-sm table-hover align-middle mb-0 tabla-resumida" id="tabla-intervalos">
+            <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+              <tr>
+                <th>Intervalo</th>
+                <th class="text-end">Pronóstico</th>
+                <th class="text-end col-detalle">Cliente</th>
+                <th class="text-end">Real</th>
+                <th class="text-end" title="Cuánto se apartó lo que entró de cada pronóstico: real / pronóstico − 1. Positivo = entraron más llamadas de las pronosticadas. En media hora con pocas llamadas el porcentaje salta mucho: el acumulado del día está arriba, debajo del gráfico.">Desvío<br><small class="fw-normal text-muted">nuestro / cliente</small></th>
+                <th class="text-end col-detalle">TMO</th>
+                <th class="text-end col-detalle">Erlangs</th>
+                <th class="text-end">En línea<br><small class="fw-normal text-muted">en línea</small></th>
+                <th class="text-end" title="Operadores-equivalentes en la línea (logueados menos el tiempo en break y otras pausas) de las telefónicas y, al lado, sumando a los del refuerzo. Pasá el mouse para ver los de otras sub-campañas, los logueados y cuánto fue pausa.">Conectados<br><small class="fw-normal text-muted">telefónicos / + <span class="lbl-refuerzo">Digital</span></small></th>
+                <th class="text-end">A planificar<br><small class="fw-normal text-muted">a citar</small></th>
+                <th class="text-end" title="Personas con turno en la malla. Con el rinde por antigüedad medido, al lado va lo que equivalen: la gente en sus primeras semanas de piso tarda más por llamada, y la brecha se calcula sobre eso.">Citados<br><small class="fw-normal text-muted">a citar</small></th>
+                <th class="text-end col-detalle" title="Promedio de personas adicionales (registro menos malla) para este horario y tipo de día durante las últimas 8 semanas cerradas. Informativo: no cambia el plan.">Extras hab.<br><small class="fw-normal text-muted">a citar</small></th>
+                <th class="text-end">Brecha<br><small class="fw-normal text-muted">a citar</small></th>
+                <th class="text-end col-detalle" title="Gente del refuerzo con turno en el intervalo: sub-campañas sin SLA cuya gente se puede pasar al teléfono si no se llega. No cambia lo que hay que citar."><span class="lbl-refuerzo">Digital</span></th>
+                <th class="text-end col-detalle" title="Lo que sigue faltando aun pasando a la línea a toda la gente del refuerzo con turno.">Tras <span class="lbl-refuerzo">Digital</span></th>
+                <th class="text-end col-detalle">NDS</th>
+                <th class="text-end col-detalle">ASA</th>
+                <th class="text-end col-detalle">Abandono</th>
+                <th class="text-end col-detalle">Ocup.</th>
+                <th>Manda</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+          <span class="fw-semibold">Días atípicos y eventos</span>
+          <span id="eventos-contador" class="badge bg-warning text-dark"></span>
+        </div>
+        <small class="text-muted">Los marcados como "detectado" esperan que alguien diga qué fueron.</small>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 380px;">
+          <table class="table table-sm align-middle mb-0" id="tabla-eventos">
+            <thead class="table-light"><tr>
+              <th>Desde</th><th>Tipo</th><th class="text-end">Factor</th>
+              <th>Descripción</th><th>Estado</th>{% if puede_editar %}<th>Acción</th>{% endif %}
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mt-3" id="card-avisos-corte" hidden>
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+          <span class="fw-semibold">Cortes anunciados por Hidra</span>
+          <span id="avisos-corte-contador" class="badge bg-warning text-dark"></span>
+        </div>
+        <small class="text-muted" id="avisos-corte-nota">Leídos de la web de Hidra. La propuesta no se aplica sola: aplicarla crea un ajuste manual.</small>
+      </div>
+      <div class="card-body p-0">
+        <div id="avisos-corte-mensajes" class="px-3 pt-2"></div>
+        <div class="table-responsive" style="max-height: 320px;">
+          <table class="table table-sm align-middle mb-0" id="tabla-avisos-corte">
+            <thead class="table-light"><tr>
+              <th>Corte</th><th>Qué y dónde</th><th>Escala</th>
+              <th class="text-end" title="Llamadas de más estimadas en toda la ventana">Llamadas extra</th>
+              <th class="text-end">Factor</th><th>Estado</th>{% if puede_editar %}<th class="text-end">Acción</th>{% endif %}
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mt-3" id="card-ajustes">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="fw-semibold">Ajustes manuales del pronóstico</span>
+        <small class="text-muted">Se aplican en el próximo recálculo sobre el volumen base. En la pestaña Comparación (backtest) no se aplican: se evalúa el modelo puro sin intervenciones.</small>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 280px;">
+          <table class="table table-sm align-middle mb-0" id="tabla-ajustes">
+            <thead class="table-light"><tr>
+              <th>Skill</th><th>Desde</th><th>Hasta</th><th class="text-end">Factor</th><th>Motivo</th>{% if puede_editar %}<th class="text-end">Acción</th>{% endif %}
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      {% if puede_editar %}
+      <div class="card-footer bg-light border-top">
+        <form id="form-nuevo-ajuste" class="row g-2 align-items-end">
+          <div class="col-md-2 col-sm-6">
+            <label class="form-label small mb-1">Skill</label>
+            <select class="form-select form-select-sm" id="ajuste-skill">
+              <option value="">Todos los skills</option>
+            </select>
+          </div>
+          <div class="col-md-2 col-sm-6">
+            <label class="form-label small mb-1">Desde</label>
+            <input type="datetime-local" class="form-control form-control-sm" id="ajuste-desde" required>
+          </div>
+          <div class="col-md-2 col-sm-6">
+            <label class="form-label small mb-1">Hasta</label>
+            <input type="datetime-local" class="form-control form-control-sm" id="ajuste-hasta" required>
+          </div>
+          <div class="col-md-2 col-sm-6">
+            <label class="form-label small mb-1" title="Factor multiplicador sobre el pronóstico (ej. 1,30 = +30%)">Factor (ej. 1.30)</label>
+            <input type="number" step="0.01" min="0.01" max="10" class="form-control form-control-sm" id="ajuste-factor" placeholder="1.30" required>
+          </div>
+          <div class="col-md-3 col-sm-8">
+            <label class="form-label small mb-1">Motivo (obligatorio)</label>
+            <input type="text" minlength="3" maxlength="400" class="form-control form-control-sm" id="ajuste-motivo" placeholder="Causa del ajuste manual..." required>
+          </div>
+          <div class="col-md-1 col-sm-4 text-end">
+            <button type="submit" class="btn btn-sm btn-primary w-100" id="btn-guardar-ajuste">
+              <i class="bi bi-plus-lg me-1"></i>Agregar
+            </button>
+          </div>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ================================================ REFUERZOS -->
+  <div class="tab-pane fade" id="tab-refuerzos">
+
+    <div class="alert alert-light border py-2 px-3 small">
+      Cada fila es un <strong>pedido</strong>: un tramo contiguo del mismo pool y el
+      mismo día donde la malla no alcanza. Se cortan cuando hay un hueco, porque un
+      faltante de 10 a 12 y otro de 17 a 19 son dos pedidos distintos.
+      <strong>Con 4 días o más todavía se puede mover la malla</strong>, que no cuesta
+      plata; entre 1 y 3, hora extra programada; el mismo día, convocatoria — que es lo
+      más caro y lo peor para el clima interno, así que todo lo que aparezca ahí es
+      plata que se pudo ahorrar mirando esto antes.
+    </div>
+
+    <div class="row g-2 mb-3" id="r-kpis"></div>
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="fw-semibold">Horas-operador que faltan, por día</span>
+        <small class="text-muted">
+          "Si viene alto" usa el volumen del pronóstico más su error típico a esa
+          antelación. No es pesimismo: quedarse corto cuesta nivel de servicio y
+          quedarse largo cuesta horas, y no son lo mismo.
+        </small>
+      </div>
+      <div class="card-body">
+        <div class="plan-chart"><canvas id="chart-refuerzos"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span class="fw-semibold">Bloques a reforzar</span>
+          <div class="btn-group btn-group-sm" id="filtro-refuerzos" role="group" aria-label="Filtro de refuerzos">
+            <button type="button" class="btn btn-outline-secondary active" data-filtro="todos">Todos</button>
+            <button type="button" class="btn btn-outline-secondary" data-filtro="pendientes">Pendientes</button>
+            <button type="button" class="btn btn-outline-secondary" data-filtro="pedidos">Pedidos</button>
+          </div>
+        </div>
+        <a id="btn-excel-refuerzos" class="btn btn-sm btn-outline-success" href="#">
+          <i class="bi bi-file-earmark-spreadsheet me-1"></i>Excel para RRHH
+        </a>
+      </div>
+      <div id="aviso-refuerzos-migracion" class="alert alert-warning py-1 px-3 m-2 small" hidden>
+        <i class="bi bi-info-circle me-1"></i>Falta la migración 2026-09-15 para seguir los pedidos.
+      </div>
+      <div class="card-body p-0">
+        <div style="max-height: 520px; overflow: auto;">
+          <table class="table table-sm table-hover align-middle mb-0" id="tabla-refuerzos">
+            <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+              <tr>
+                <th>Día</th><th>Franja</th><th>Pool</th>
+                <th class="text-end">Faltan</th>
+                <th class="text-end">Horas</th>
+                <th class="text-end">Si viene alto</th>
+                <th class="text-end">Antelación</th>
+                <th>Cómo se resuelve</th>
+                <th class="th-refuerzo-seguimiento">Estado</th>
+                <th class="th-refuerzo-seguimiento text-end">Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="slot-refuerzos" class="mt-3" hidden></div>
+  </div>
+
+  <!-- ============================================== COMPARACIÓN -->
+  <div class="tab-pane fade" id="tab-comparacion">
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <div class="row g-2 align-items-end">
+          <div class="col-auto">
+            <label for="b-desde" class="form-label small mb-1">Desde</label>
+            <input type="date" id="b-desde" class="form-control form-control-sm">
+          </div>
+          <div class="col-auto">
+            <label for="b-hasta" class="form-label small mb-1">Hasta</label>
+            <input type="date" id="b-hasta" class="form-control form-control-sm">
+          </div>
+          <div class="col-auto">
+            <label for="b-antelacion" class="form-label small mb-1">Antelación</label>
+            <select id="b-antelacion" class="form-select form-select-sm">
+              <option value="0">El mismo día (plan de la mañana)</option>
+              <option value="1">1 día</option>
+              <option value="7" selected>7 días</option>
+              <option value="14">14 días</option>
+              <option value="21">21 días</option>
+            </select>
+          </div>
+          <div class="col-auto">
+            <button id="btn-comparar" class="btn btn-sm btn-primary">
+              <i class="bi bi-clock-history me-1"></i>Comparar
+            </button>
+          </div>
+          <div class="col-auto">
+            <a id="btn-excel-comparacion" class="btn btn-sm btn-outline-success disabled" href="#">
+              <i class="bi bi-file-earmark-spreadsheet me-1"></i>Excel
+            </a>
+          </div>
+          <div class="col-12">
+            <details class="porque mt-2"><summary>Por qué</summary><div>
+              Cada día se pronostica de nuevo con la historia que había
+              <strong>esos días antes</strong>, y se compara contra lo que
+              efectivamente entró. Con 7 días de antelación, el lunes se pronostica
+              con lo que se sabía el lunes anterior: es el error que duele, porque
+              es el del día que ya tiene la malla publicada.
+              Lo real sale del informe de skills, que trae sólo nuestras llamadas y
+              <strong>carga cada hora</strong>. Nada de esto se guarda: no pisa la
+              corrida vigente ni marca días atípicos.
+              Acá se mide el pronóstico <strong>tal como está configurado</strong>, que
+              es lo que la operación necesita saber. Probar otra cosa —con o sin clima,
+              otra ventana de historia— es del <strong>Laboratorio</strong> (la pestaña
+              de quien puede editar), que corre esta misma comparación dos veces y pone
+              los errores uno al lado del otro.
+            </div></details>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="b-avisos"></div>
+    <div class="row g-2 mb-3" id="b-kpis"></div>
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-white">
+        <span class="fw-semibold">Quién acierta más, según el día</span>
+        <small class="text-muted ms-2">
+          El error de un domingo y el de un martes no se promedian sin perder
+          justamente lo que hay que ver.
+        </small>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm align-middle mb-0" id="tabla-tipo-dia">
+          <thead class="table-light">
+            <tr>
+              <th>Tipo de día</th>
+              <th class="text-end">Días</th>
+              <th class="text-end">Llamadas</th>
+              <th class="text-end">Nuestro</th>
+              <th class="text-end">Del cliente</th>
+              <th class="text-end">Combinado</th>
+              <th class="text-end">Semana ant.</th>
+              <th>Gana</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card-footer bg-white small text-muted">
+        Error del total del día (MAPE). "Combinado" es mezclar los dos con el peso
+        que se podía medir en cada fecha de corte; en una ventana corta arranca en
+        cero y por eso se parece al nuestro. Para medirlo en serio está «Medir el
+        peso», en Laboratorio.
+      </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+          <span class="fw-semibold">Operadores: cuántos pedíamos y cuántos hubo</span>
+          <small class="text-muted ms-2">
+            En gente a citar, sumada sobre las medias horas del día. Hacé clic en un día
+            para verlo intervalo por intervalo.
+          </small>
+        </div>
+        <div class="form-check form-switch small mb-0">
+          <input class="form-check-input" type="checkbox" role="switch" id="d-detalle">
+          <label class="form-check-label" for="d-detalle">Ver todas las columnas</label>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="row g-2 mb-3" id="d-kpis"></div>
+        <div class="table-responsive tabla-alta">
+          <table class="table table-sm align-middle mb-0 tabla-resumida" id="tabla-dotacion">
+            <thead class="table-light">
+              <tr>
+                <th>Día</th>
+                <th class="text-end">Llamadas</th>
+                <th class="text-end" title="Gente a citar que pedía el plan con el pronóstico de ese día.">Pedíamos<br><small class="fw-normal text-muted">a citar, con el pronóstico</small></th>
+                <th class="text-end col-detalle" title="Gente a citar que hubiera pedido el plan con las llamadas que realmente entraron.">Hacía falta<br><small class="fw-normal text-muted">a citar, con lo que entró</small></th>
+                <th class="text-end" title="El registro de RRHH del día ya cerrado (dbo.payroll): los turnos como terminaron siendo, con horas extras, refuerzos y cambios de último momento. Incluye al que estaba citado y faltó.">Tenían turno<br><small class="fw-normal text-muted">lo que pasó</small></th>
+                <th class="text-end col-detalle" title="La grilla de turnos publicada por RRHH (payroll_futuro): quién tenía que venir y en qué horario, como se armó antes del día. No tiene horas extras cargadas.">Malla<br><small class="fw-normal text-muted">lo publicado</small></th>
+                <th class="text-end col-detalle" title="Operadores-equivalentes en la línea (logueados menos el tiempo en break y otras pausas) de las telefónicas y, al lado, sumando a los del refuerzo. Pasá el mouse por el número para ver los de otras sub-campañas, los logueados y cuánto fue pausa.">Conectados<br><small class="fw-normal text-muted">telefónicos / + <span class="lbl-refuerzo">Digital</span></small></th>
+                <th class="text-end col-detalle" title="Gente del refuerzo con turno (intervalos-operador) y cuánto de ese tiempo estuvo en la línea (equivalentes, sin pausas)."><span class="lbl-refuerzo">Digital</span><br><small class="fw-normal text-muted">turno / en la línea</small></th>
+                <th class="text-end" title="Cuánto más (o menos) pedía el plan que la gente que tuvo turno.">Pedíamos<br><small class="fw-normal text-muted">vs los que hubo</small></th>
+                <th class="text-end" title="Lo mismo pero con las llamadas que realmente entraron: saca el error del pronóstico.">Hacía falta<br><small class="fw-normal text-muted">vs los que hubo</small></th>
+                <th class="text-end col-detalle" title="Lo que faltó contra los que tenían turno, sumado intervalo por intervalo, menos lo que podía tapar el refuerzo con su gente con turno en cada intervalo.">Faltó tras <span class="lbl-refuerzo">Digital</span><br><small class="fw-normal text-muted">de lo que faltó</small></th>
+                <th class="text-end">NDS real</th>
+                <th class="text-end col-detalle">Abandono</th>
+                <th class="text-end col-detalle" title="Llamadas por operador por hora. Pronosticado: llamadas pronosticadas sobre las horas que pedíamos. Real: llamadas atendidas sobre las horas conectadas.">CPH<br><small class="fw-normal text-muted">pronóstico / real</small></th>
+                <th class="text-end col-detalle">Ocupación<br><small class="fw-normal text-muted">modelo / real</small></th>
+                <th>Qué mandó</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <details class="porque small mt-3 mb-2">
+          <summary>Qué es cada columna de gente</summary><div>
+          <div class="mb-1"><strong>Pedíamos</strong> es la gente a citar que pedía el plan con
+            el pronóstico. <strong>Hacía falta</strong> es lo mismo con las llamadas que
+            realmente entraron; en el detalle por intervalo se muestra como operadores
+            <em>en la línea</em>, y pasando el mouse se ve cómo se convierte en gente a citar.</div>
+          <div class="mb-1"><strong>Malla — lo publicado.</strong> La grilla de turnos que
+            RRHH publica <em>antes</em> del día (<code>payroll_futuro</code>): quién tenía que
+            venir y en qué horario. Es contra lo que se negocia la dotación. No tiene
+            ninguna hora extra cargada.</div>
+          <div class="mb-1"><strong>Tenían turno — lo que pasó.</strong> El registro de RRHH
+            del día <em>ya cerrado</em> (<code>dbo.payroll</code>): los mismos turnos, pero
+            como terminaron siendo, con las horas extras, los refuerzos convocados a último
+            momento y los turnos que se dieron de baja. Incluye al que estaba citado y faltó:
+            el ausentismo no se descuenta acá, se ve en conectados. Suma además a
+            Contingencia, Gestión SVP y BU - Anfitrión, que atienden algunos días sin
+            saberse cuáles: cuentan sólo en las medias horas de su turno en que estuvieron
+            en la línea (el resto del día están en digital o en la sucursal).</div>
+          <div class="mb-1"><strong>Conectados.</strong> Los que efectivamente estuvieron
+            en la línea, en operadores-equivalentes (el que entró a mitad de la media hora
+            cuenta medio): el tiempo logueado <em>menos</em> el break y las demás pausas
+            (activa, administrativa, técnica…), porque en pausa no se atiende. Van
+            partidos igual que los citados: primero los telefónicos (con Contingencia,
+            Gestión SVP y BU - Anfitrión cuando atienden) y al lado sumando a los de
+            Digital, tanto la palanca como las digitales que no se pasan al teléfono
+            (BackOffice, RRSS, Electro, Agrupadas, Ajustes). Así cada uno se compara con su
+            par —tenían turno contra conectados telefónicos—. Pasando el mouse se ve el
+            detalle, los logueados y cuánto fue pausa.</div>
+          <div class="mb-1"><strong><span class="lbl-refuerzo">Digital</span> — la
+            palanca.</strong> Sub-campañas sin SLA cuya gente se puede pasar al teléfono
+            cuando no se llega (en Voltara, Digital y T2T3 - Digital; no Agrupadas ni
+            Ajustes - Lecturas). No cuenta como citado: la columna dice cuántos tenían
+            turno y cuánto de ese tiempo estuvieron en la línea, y <strong>Faltó tras
+            <span class="lbl-refuerzo">Digital</span></strong> es lo que no se tapaba ni
+            pasando a todos.</div>
+          <div class="text-muted">La diferencia entre malla y tenían turno son las horas
+            extras y los cambios de último momento. En el mes casi se compensan, pero un día
+            puntual se despega mucho: para arriba con los refuerzos de un fin de semana, para
+            abajo con turnos publicados que no se hicieron.</div>
+        </div></details>
+        <table class="table table-sm table-borderless small mt-3 mb-1" style="width:auto"
+               id="tabla-dotacion-tipo">
+          <thead class="text-muted"><tr>
+            <th class="fw-normal">Tipo de día</th><th class="text-end fw-normal">Días</th>
+            <th class="text-end fw-normal">Pedíamos vs los que hubo</th>
+            <th class="text-end fw-normal">Hacía falta vs los que hubo</th>
+            <th class="text-end fw-normal">NDS real</th>
+            <th class="text-end fw-normal">Abandono</th>
+            <th class="text-end fw-normal">CPH pronóstico / real</th>
+            <th class="text-end fw-normal">Ocupación modelo / real</th>
+            <th class="fw-normal">Qué mandó</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="mando-leyenda mt-2 mb-1">
+          <span><i class="mando-nds"></i>nivel de servicio</span>
+          <span><i class="mando-ocup"></i>techo de ocupación</span>
+          <span><i class="mando-abandono"></i>abandono</span>
+          <span><i class="mando-minima"></i>cobertura mínima</span>
+        </div>
+        <details class="porque mt-2"><summary>Por qué se dimensiona dos veces</summary><div>
+          El error de llamadas no se traduce uno a uno en error de gente: Erlang no
+          es lineal y la cadena de descuentos —disponibilidad, shrinkage, break—
+          agrega su propio error encima. Por eso cada intervalo se dimensiona dos
+          veces y la brecha contra la malla se parte en dos sumandos:<br>
+          <code>(pedíamos − citados) = (pedíamos − hacía falta) + (hacía falta − citados)</code><br>
+          El primero es <strong>error de pronóstico</strong>; el segundo, error de
+          <strong>dimensionamiento</strong>. Sin partirla no se sabe cuál arreglar.<br><br>
+          <strong>Tenían turno</strong> sale del registro (<code>dbo.payroll</code>) y
+          no de la malla, y la diferencia importa: <code>payroll_futuro</code> —la
+          malla— no tiene <strong>ninguna hora extra cargada</strong>, y el registro
+          sí. En el mes casi se compensan, porque alguien refresca la malla pasada con
+          el horario realizado, pero día por día no: los días que más se despegan son
+          justo los refuerzos de fin de semana. Por eso la columna <strong>Malla</strong>
+          queda al lado: es contra lo que se negocia la dotación, y la distancia entre
+          las dos es horas extras y cambios de último momento.<br><br>
+          <strong>Conectados</strong> son operadores-equivalentes en la línea —logueados
+          menos break y demás pausas—, partidos en telefónicos y telefónicos + refuerzo. Que el total de conectados se parezca a
+          la gente con turno no quiere decir que no faltó nadie: parte de los logueados
+          son de sub-campañas que la malla no cuenta —el refuerzo y otras que también
+          atienden estas colas— y tapan lo que falta de las telefónicas. Por eso la
+          comparación justa es telefónicos contra tenían turno. Pasando el mouse por el
+          número se ve de dónde era la gente ese día. En Voltara, T1 -
+          Consumo cuenta como telefónica aunque el tablero no la incluya. El refuerzo
+          ya se usa, y más cuando aprieta.<br><br>
+          El <strong>NDS real</strong> va al lado porque una brecha sin el servicio
+          no se puede leer: citar menos de lo que el plan pedía y cumplir el objetivo
+          igual significa que el plan pide de más; citar menos y <em>no</em> cumplirlo
+          significa que la operación se quedó corta. Son conclusiones opuestas.<br><br>
+          Y la <strong>ocupación</strong> cierra el caso incómodo: «cumplimos el nivel
+          de servicio, ¿por qué pide más gente?».<br><br>
+          Cada intervalo se dimensiona contra <strong>cuatro</strong> restricciones a la
+          vez —nivel de servicio, techo de ocupación, techo de abandono de cada skill y
+          cobertura mínima del pool— y el número que queda es el de la <strong>más
+          exigente</strong>. Esa es la que «mandó», y la columna muestra el reparto del
+          día: en un día mandan varias, el techo en el pico y el nivel de servicio en el
+          resto, así que un solo nombre mentiría. El peso va en
+          <strong>intervalos-operador</strong> y no en cantidad de intervalos: que el
+          techo mande en pocos intervalos no quiere decir que pese poco, porque suelen
+          ser los del pico.<br><br>
+          Cómo se lee un pico: con la gente justa para cumplir el nivel de servicio, cada
+          operador quedaría ocupado casi todo el tiempo; para no pasar el techo de
+          ocupación hacen falta algunos más, y con ellos el servicio sale sobrado. Manda
+          la más exigente —el techo— y la columna lo dice. El techo de ocupación es una
+          restricción de <strong>condiciones de trabajo</strong>, no de servicio: si
+          alguna vez hay que bajar la dotación en serio, <strong>esa es la
+          perilla</strong>, y la pestaña Escenarios muestra cuánto mueve.<br><br>
+          El reparto cambia mucho según el día. En un hábil el techo suele fijar buena
+          parte del pico; el fin de semana, con la ocupación baja, casi nunca manda y
+          aparece el <strong>abandono de ELECTRODEPENDIENTES</strong>, incluso con su
+          prioridad en el ACD contemplada. Ahí lo que pide gente es el servicio de
+          verdad, y se ve en el NDS y el abandono reales del día.<br><br>
+          Las dos ocupaciones usan la <strong>misma definición de Erlang</strong>
+          —tráfico ofrecido sobre operadores en la cola— y por eso se pueden comparar: la
+          del modelo sobre los que pide, la real sobre los que estuvieron. <em>No</em> es
+          la ocupación del tablero de la operación, que mide otra cosa: marca alta incluso
+          de madrugada, cuando casi no hay tráfico.<br><br>
+          El <strong>CPH</strong> (llamadas por operador por hora) va en las dos
+          versiones: el <em>pronosticado</em> divide las llamadas pronosticadas por las horas
+          que pedíamos —la productividad que el plan daba por supuesta— y el <em>real</em>
+          divide las llamadas atendidas por las horas conectadas —la que efectivamente hubo—.
+          Atendidas y no entrantes, porque la que se cortó esperando no la atendió nadie. El
+          CPH de un día es el total de llamadas sobre el total de horas, no el promedio de
+          los CPH de cada media hora.<br><br>
+          Todo está en <strong>intervalos-operador</strong> (la suma de los 48
+          intervalos del día), que es la unidad en la que se compran horas. Se
+          dimensiona con la configuración de <strong>hoy</strong>, a propósito: la
+          pregunta es qué pediría el planificador tal como está ahora para días que
+          ya se conocen. Y el TMO del pronóstico sale sólo de lo anterior al primer
+          corte, para no mirar el futuro que el resto del backtest se cuida de ver.
+        </div></details>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mb-3" id="card-dotacion-dia">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="fw-semibold">Operadores de un día, intervalo por intervalo</span>
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+          <div class="form-check form-switch small mb-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="d-detalle-dia">
+            <label class="form-check-label" for="d-detalle-dia">Ver todas las columnas</label>
+          </div>
+          <label for="d-dia" class="form-label small mb-0">Día</label>
+          <select id="d-dia" class="form-select form-select-sm" style="min-width: 220px;"></select>
+        </div>
+      </div>
+      <div class="card-body">
+        <div id="d-dia-resumen" class="small mb-2 text-muted">
+          Corré la comparación y elegí un día, o hacé clic en una fila de la tabla de
+          operadores.
+        </div>
+        <div class="plan-chart mb-3"><canvas id="chart-dotacion-intra"></canvas></div>
+        <div id="tabla-dotacion-intervalos-wrap" class="table-responsive">
+          <table class="table table-sm align-middle mb-0 tabla-resumida" id="tabla-dotacion-intervalos">
+            <thead class="table-light">
+              <tr>
+                <th>Hora</th>
+                <th class="text-end">Llamadas<br><small class="fw-normal text-muted">pronóstico / real</small></th>
+                <th class="text-end" title="Operadores en línea que pedía el plan con las llamadas pronosticadas. Pasá el mouse por el número para ver a cuánta gente a citar equivalían.">Pedíamos<br><small class="fw-normal text-muted">en línea</small></th>
+                <th class="text-end" title="Operadores que tenían que estar en la línea para atender las llamadas que realmente entraron. Pasá el mouse por el número para ver a cuánta gente a citar equivalen.">Hacía falta<br><small class="fw-normal text-muted">en línea</small></th>
+                <th class="text-end" title="Operadores-equivalentes en la línea (logueados menos el tiempo en break y otras pausas) de las telefónicas y, al lado, sumando a los del refuerzo. En rojo, cuando telefónicos + refuerzo fueron menos que los que hacían falta en la línea. Pasá el mouse para ver los de otras sub-campañas, los logueados y cuánto fue pausa.">Conectados<br><small class="fw-normal text-muted">telefónicos / + <span class="lbl-refuerzo">Digital</span></small></th>
+                <th class="text-end" title="El registro de RRHH del día ya cerrado, en personas a citar: incluye al que faltó y no descuenta pausas. No se compara directo con las columnas en línea; pasá el mouse para ver cuántos había que citar.">Tenían turno<br><small class="fw-normal text-muted">a citar</small></th>
+                <th class="text-end col-detalle" title="La grilla de turnos publicada antes del día. No tiene horas extras cargadas.">Malla<br><small class="fw-normal text-muted">lo publicado</small></th>
+                <th class="text-end col-detalle" title="Gente del refuerzo con turno y cuánto estuvo en la línea (equivalentes, sin pausas)."><span class="lbl-refuerzo">Digital</span><br><small class="fw-normal text-muted">turno / en la línea</small></th>
+                <th class="text-end col-detalle" title="Tenían turno menos la gente a citar que hacía falta con lo que entró.">Sobró / faltó<br><small class="fw-normal text-muted">turno − a citar</small></th>
+                <th class="text-end col-detalle" title="Lo que faltaba aun pasando a la línea a toda la gente del refuerzo con turno. «cubre» = el refuerzo alcanzaba.">Tras <span class="lbl-refuerzo">Digital</span></th>
+                <th class="text-end">NDS real</th>
+                <th class="text-end col-detalle">Abandono</th>
+                <th class="text-end col-detalle" title="Llamadas por operador por hora. Pronosticado: llamadas pronosticadas sobre las horas que pedíamos. Real: llamadas atendidas sobre las horas conectadas.">CPH<br><small class="fw-normal text-muted">pronóstico / real</small></th>
+                <th class="text-end col-detalle">Ocupación<br><small class="fw-normal text-muted">modelo / real</small></th>
+                <th>Qué mandó</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <details class="porque mt-2"><summary>Cómo leer un intervalo</summary><div>
+          Es el mismo cotejo de la tabla de arriba, sin sumar: cada fila es media hora.
+          El día agregado dice <strong>cuánto</strong> se erró y esto dice
+          <strong>dónde</strong>, que es lo que hace falta para leer un caso: el desvío de
+          un domingo puede ser toda la tarde un poco o dos medias horas mucho, y son
+          problemas distintos.<br><br>
+          <strong>Pedíamos, Hacía falta y Conectados</strong> están los tres en operadores
+          <em>en la línea</em>, así que se comparan directo, sin el ausentismo ni las pausas
+          de por medio. Pedíamos contra Hacía falta es el error del
+          <strong>pronóstico</strong> (las mismas cuentas, con las llamadas pronosticadas o
+          con las que entraron). Hacía falta contra Conectados es lo que pasó en la cola: en
+          rojo, las medias horas con menos conectados telefónicos + refuerzo que los que
+          hacían falta. En el gráfico, los conectados telefónicos van en línea llena y
+          sumando al refuerzo en punteada, igual que tenían turno y tenían turno + refuerzo.<br><br>
+          <strong>Tenían turno</strong> va en otra unidad —personas a citar, incluye al que
+          faltó— y por eso queda al costado. Pasando el mouse por cualquiera de las
+          columnas en línea se ve a cuánta gente a citar equivalen (disponibilidad,
+          shrinkage y break).<br><br>
+          Leelo siempre al lado del <strong>NDS real</strong> y de <strong>qué
+          mandó</strong>: si faltó gente pero mandaba el techo de ocupación y el NDS se
+          cumplió, lo que faltó es margen de ocupación, no servicio. Con
+          <strong>Ver todas las columnas</strong> aparecen la malla, el refuerzo, el
+          sobró/faltó en gente a citar, el abandono, el CPH y la ocupación.<br><br>
+          <strong>Malla</strong> es la grilla publicada antes del día y <strong>tenían
+          turno</strong> es el registro del día ya cerrado, con horas extras y refuerzos:
+          cuando en una media hora tenían turno supera a la malla, ahí hubo gente convocada
+          de más.<br><br>
+          <strong>CPH</strong> son llamadas por operador por hora: el pronosticado divide
+          las llamadas pronosticadas por las horas que pedíamos, y el real divide las
+          llamadas atendidas por las horas conectadas. Un CPH real más alto que el
+          pronosticado quiere decir que cada operador atendió más de lo que el plan
+          suponía.<br><br>
+          <strong>En línea</strong> son los operadores sobre la cola que pide el modelo;
+          <strong>hacía falta</strong> es la gente a citar para tenerlos, que sale de
+          dividir por disponibilidad, shrinkage y break y redondear hacia arriba (pasando el
+          mouse por el número se ve la cuenta). En las medias horas chicas eso pesa: con dos
+          llamadas que un solo operador no alcanza a atender al 80%, el modelo pide 2 en
+          línea, y los descuentos llevan esos 2 a 2,64, que redondea a 3 a citar; con una
+          llamada pide 1 en línea, que da 1,32 y redondea a 2. Si el pool tiene cargada una
+          <strong>cobertura mínima</strong>, en las horas sin tráfico manda ella y el motivo lo
+          dice. Por eso el «faltó» se pinta de dos formas:
+          <strong>atenuado</strong> cuando los que tenían turno alcanzaban para los operadores
+          en línea y lo único que faltó es el margen de los descuentos, y <strong>en
+          rojo</strong> cuando ni siquiera alcanzaban para los de en línea (pasando el mouse
+          se ve cuál de los dos es). Cuando el nivel de servicio y el piso piden lo mismo
+          —dos llamadas que con un solo operador no llegan al 80%— el motivo dice «nivel de
+          servicio», porque lo pediría aunque no hubiera piso.<br><br>
+          El <strong>NDS de media hora con pocas llamadas</strong> es una anécdota —una
+          llamada de dos es 50%— así que por debajo de diez llamadas se muestra
+          atenuado. Pasando el mouse por <strong>qué mandó</strong> se ve la restricción
+          con su nombre completo (por ejemplo, qué skill fijó el techo de abandono).
+        </div></details>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-white">
+        <span class="fw-semibold">Llamadas por día: real contra pronosticado</span>
+        <small class="text-muted ms-2">
+          "Semana anterior" es la referencia mínima: repetir el mismo día de la
+          semana pasada. Si el pronóstico no le gana, no está aportando nada.
+        </small>
+      </div>
+      <div class="card-body">
+        <div class="plan-chart"><canvas id="chart-backtest-dia"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="fw-semibold">Un día por dentro</span>
+        <div class="d-flex align-items-center gap-2">
+          <label for="b-dia" class="form-label small mb-0">Día</label>
+          <select id="b-dia" class="form-select form-select-sm" style="min-width: 170px;"></select>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="plan-chart"><canvas id="chart-backtest-intra"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="fw-semibold">Día por día</span>
+        <small class="text-muted">
+          "Desvío" positivo = entraron más llamadas de las pronosticadas (el nuestro y el de dbo.Forecast, con la misma cuenta).
+        </small>
+      </div>
+      <div class="card-body p-0">
+        <div style="max-height: 460px; overflow: auto;">
+          <table class="table table-sm table-hover align-middle mb-0" id="tabla-backtest">
+            <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+              <tr>
+                <th>Día</th>
+                <th class="text-end">Real</th>
+                <th class="text-end">Pronosticado</th>
+                <th class="text-end">Dif.</th>
+                <th class="text-end">Desvío</th>
+                <th class="text-end">Semana ant.</th>
+                <th class="text-end">dbo.Forecast</th>
+                <th class="text-end" title="El desvío del pronóstico del cliente, con la misma cuenta que el nuestro: real / dbo.Forecast − 1.">Desvío cliente</th>
+                <th class="text-end">Combinado</th>
+                <th class="text-end">Clima</th>
+                <th class="text-end">Cliente real</th>
+                <th class="text-end">Share real</th>
+                <th class="text-end">Share aplicado</th>
+                <th>Evento</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =============================================== ESCENARIOS -->
+  <div class="tab-pane fade" id="tab-escenarios">
+    <div id="slot-escenarios"></div>
+  </div>
+
+  <!-- ============================================== LABORATORIO -->
+  <!-- El modelo de pronóstico, aparte de la operación: Comparación dice cómo nos fue
+       con el pronóstico tal como está; acá se prueba otro y se deja vigente. Sólo
+       tiene pestaña quien puede editar. El panel se arma igual para todos porque la
+       configuración llena sus casillas por id. -->
+  <div class="tab-pane fade" id="tab-laboratorio">
+
+    <p class="small text-muted mb-3">
+      Acá se prueba el modelo de pronóstico antes de tocarlo. <strong>Medir</strong> no
+      guarda nada; <strong>dejar vigente</strong> cambia la configuración y entra en el
+      próximo recálculo (el automático es a las 06:00 y a las 14:00).
+    </p>
+
+    <div class="card shadow-sm mb-3" id="card-lab-probar">
+      <div class="card-header bg-white">
+        <span class="fw-semibold">Probar un cambio</span>
+        <small class="text-muted ms-2">
+          La misma comparación dos veces, como está y con el cambio, sobre días que ya
+          pasaron.
+        </small>
+      </div>
+      <div class="card-body">
+        <div class="row g-2 align-items-end mb-3">
+          <div class="col-auto">
+            <label for="l-desde" class="form-label small mb-1">Desde</label>
+            <input type="date" id="l-desde" class="form-control form-control-sm">
+          </div>
+          <div class="col-auto">
+            <label for="l-hasta" class="form-label small mb-1">Hasta</label>
+            <input type="date" id="l-hasta" class="form-control form-control-sm">
+          </div>
+          <div class="col-auto">
+            <label for="l-antelacion" class="form-label small mb-1">Antelación</label>
+            <select id="l-antelacion" class="form-select form-select-sm">
+              <option value="0">El mismo día (plan de la mañana)</option>
+              <option value="1">1 día</option>
+              <option value="7" selected>7 días</option>
+              <option value="14">14 días</option>
+              <option value="21">21 días</option>
+            </select>
+          </div>
+        </div>
+        <div class="row g-2 align-items-end">
+          <div class="col-auto">
+            <label for="l-clima" class="form-label small mb-1">Clima</label>
+            <select id="l-clima" class="form-select form-select-sm">
+              <option value="">Como está</option>
+              <option value="true">Con clima</option>
+              <option value="false">Sin clima</option>
+            </select>
+          </div>
+          <div class="col-auto">
+            <label for="l-elast" class="form-label small mb-1">Clima del domingo</label>
+            <select id="l-elast" class="form-select form-select-sm">
+              <option value="">Como está</option>
+              <option value="true">Con atenuación</option>
+              <option value="false">Sin atenuación</option>
+            </select>
+          </div>
+          <div class="col-auto">
+            <label for="l-nivel" class="form-label small mb-1">Nivel diario</label>
+            <select id="l-nivel" class="form-select form-select-sm">
+              <option value="">Como está</option>
+              <option value="true">Con segunda opinión</option>
+              <option value="false">Sin segunda opinión</option>
+            </select>
+          </div>
+          <div class="col-auto">
+            <label for="l-nivel-tipo-dia" class="form-label small mb-1">Nivel por tipo de día</label>
+            <select id="l-nivel-tipo-dia" class="form-select form-select-sm">
+              <option value="">Como está</option>
+              <option value="true">Separado</option>
+              <option value="false">Único</option>
+            </select>
+          </div>
+          <div class="col-auto">
+            <label for="l-semanas" class="form-label small mb-1">Semanas de historia</label>
+            <input type="number" id="l-semanas" class="form-control form-control-sm"
+                   min="4" max="156" style="width: 110px;">
+          </div>
+          <div class="col-auto">
+            <label for="l-dias-nivel" class="form-label small mb-1">Días de nivel</label>
+            <input type="number" id="l-dias-nivel" class="form-control form-control-sm"
+                   min="7" max="120" style="width: 100px;">
+          </div>
+          <div class="col-auto">
+            <label for="l-deriva-dias" class="form-label small mb-1">Días de deriva</label>
+            <input type="number" id="l-deriva-dias" class="form-control form-control-sm"
+                   min="0" max="60" style="width: 100px;">
+          </div>
+          <div class="col-auto">
+            <label for="l-deriva-tope" class="form-label small mb-1">Tope de la deriva</label>
+            <input type="number" id="l-deriva-tope" class="form-control form-control-sm"
+                   min="0" max="0.5" step="0.05" style="width: 100px;">
+          </div>
+          <div class="col-auto">
+            <label for="l-tipo-dia-dias" class="form-label small mb-1">Días del reparto por tipo de día</label>
+            <input type="number" id="l-tipo-dia-dias" class="form-control form-control-sm"
+                   min="0" max="1100" style="width: 110px;">
+          </div>
+          <div class="col-auto">
+            <label for="l-tipo-dia-tope" class="form-label small mb-1">Tope de ese factor</label>
+            <input type="number" id="l-tipo-dia-tope" class="form-control form-control-sm"
+                   min="0" max="0.5" step="0.05" style="width: 100px;">
+          </div>
+          <div class="col-auto">
+            <label for="l-feriado-sabado" class="form-label small mb-1">Feriados</label>
+            <select id="l-feriado-sabado" class="form-select form-select-sm">
+              <option value="">Como está</option>
+              <option value="true">Como sábado</option>
+              <option value="false">Como domingo</option>
+            </select>
+          </div>
+          <div class="col-auto">
+            <label for="l-puente-factor" class="form-label small mb-1">Puente (x día hábil)</label>
+            <input type="number" id="l-puente-factor" class="form-control form-control-sm"
+                   min="0.1" max="1.5" step="0.05" style="width: 100px;">
+          </div>
+          <div class="col-auto">
+            <label for="l-pers-hoy" class="form-label small mb-1">Persistencia: hoy</label>
+            <input type="number" id="l-pers-hoy" class="form-control form-control-sm"
+                   min="0" max="1" step="0.05" style="width: 100px;">
+          </div>
+          <div class="col-auto">
+            <label for="l-pers-resto" class="form-label small mb-1">Persistencia: días siguientes</label>
+            <input type="number" id="l-pers-resto" class="form-control form-control-sm"
+                   min="0" max="1" step="0.05" style="width: 100px;">
+          </div>
+          <div class="col-auto">
+            <label for="l-pers-dias" class="form-label small mb-1">Persistencia: días</label>
+            <input type="number" id="l-pers-dias" class="form-control form-control-sm"
+                   min="0" max="30" style="width: 90px;">
+          </div>
+          <div class="col-auto">
+            <label for="l-pers-eventos" class="form-label small mb-1">Persistencia en días atípicos</label>
+            <select id="l-pers-eventos" class="form-select form-select-sm">
+              <option value="">Como está</option>
+              <option value="true">No arrastrar</option>
+              <option value="false">Arrastrar</option>
+            </select>
+          </div>
+          <div class="col-auto">
+            <label for="l-forma-dias" class="form-label small mb-1">Forma del día: últimos días</label>
+            <input type="number" id="l-forma-dias" class="form-control form-control-sm"
+                   min="7" max="91" style="width: 100px;">
+          </div>
+          <div class="col-auto">
+            <button id="btn-lab-medir" class="btn btn-sm btn-primary">
+              <i class="bi bi-eyedropper me-1"></i>Medir el cambio
+            </button>
+          </div>
+        </div>
+        <div class="form-text">
+          Lo que quede vacío o en «Como está» usa el valor vigente, que se ve en gris
+          adentro de cada casilla.
+        </div>
+        <details class="porque mt-2"><summary>Feriados, puentes y persistencia</summary><div>
+          <strong>Feriados</strong>: por defecto un feriado se pronostica como un domingo, que
+          es como se comporta en Voltara. En Hidra un feriado en día hábil se parece más a un
+          sábado (Navidad y Año Nuevo siguen siendo domingo). <strong>Puente</strong>: vacío,
+          el puente turístico es un feriado más; con un número, se pronostica como su día
+          hábil multiplicado por ese número (en Hidra, 0,6).<br>
+          <strong>Persistencia en días atípicos</strong>: «No arrastrar» saltea el día marcado como
+          atípico (el que se saca del entrenamiento) igual que un feriado. Sirve cuando el evento dura
+          un día, como los paros del call center de Gasur.
+          <strong>Forma del día</strong>: vacío, el reparto entre las medias horas sale de la mediana
+          de las semanas de historia; con un número, de los últimos N días del mismo tipo (hábil,
+          sábado, domingo). El total del día no cambia.<br>
+          <strong>Persistencia</strong>: si ayer entró más (o menos) de lo pronosticado, hoy
+          probablemente también. Corrige cada día por el desvío de ayer: «hoy» es el peso para
+          el día en curso y «días siguientes» el de los que siguen, hasta «días». En cero,
+          apagada. Se mide mejor con antelación «El mismo día», que es el plan de la mañana.
+        </div></details>
+        <details class="porque mt-2"><summary>Cómo se decide</summary><div>
+          Arriba van las dos medidas que deciden: el error <strong>por media hora</strong>,
+          que pondera por volumen y es el que mueve gente, y el del <strong>total del
+          día</strong>. Un cambio que mejora las dos se puede dejar vigente; uno que mejora
+          una y empeora la otra se mira por tipo de día antes de decidir, porque el domingo
+          es otro problema. Una ventana corta exagera en los dos sentidos: lo que se va a
+          dejar vigente conviene medirlo sobre varios meses. La segunda opinión del nivel
+          reajusta un modelo por cada fecha de corte, así que con ella una ventana larga
+          tarda bastante.
+        </div></details>
+        <div id="l-resultado" class="mt-3"></div>
+        <div id="l-modelos" class="mt-2"></div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mb-3" id="card-lab-modelo">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="fw-semibold">Modelo de pronóstico vigente</span>
+        <small class="text-muted">Lo que usa el próximo recálculo.</small>
+      </div>
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+          <span class="fw-semibold small">Clima del área de concesión</span>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="c-clima-activo"
+                   {% if not puede_editar %}disabled{% endif %}>
+            <label class="form-check-label small" for="c-clima-activo">
+              Usarlo en el pronóstico
+            </label>
+          </div>
+        </div>
+        <div class="row g-3 align-items-end">
+          <div class="col-auto">
+            <label class="form-label small mb-1">Latitud</label>
+            <input type="number" step="0.000001" class="form-control form-control-sm"
+                   id="c-clima-lat" style="width: 140px;">
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">Longitud</label>
+            <input type="number" step="0.000001" class="form-control form-control-sm"
+                   id="c-clima-lon" style="width: 140px;">
+          </div>
+          <div class="col-auto">
+            <button id="btn-guardar-clima" class="btn btn-sm btn-primary"
+                    {% if not puede_editar %}disabled{% endif %}>Guardar el clima</button>
+          </div>
+          <div class="col-12" id="c-clima-estado"></div>
+          <div class="col-12"><hr class="my-1"></div>
+          <div class="col-auto">
+            <div class="form-check form-switch mb-0">
+              <input class="form-check-input" type="checkbox" id="c-elasticidad"
+                     {% if not puede_editar %}disabled{% endif %}>
+              <label class="form-check-label small" for="c-elasticidad">
+                Atenuar el clima de los domingos
+              </label>
+            </div>
+          </div>
+          <div class="col-12">
+            <details class="porque"><summary>Por qué sólo el domingo</summary><div>
+              El modelo de clima se ajusta <strong>por cola</strong>, y eso está bien:
+              EMERGENCIAS se mueve con el tiempo y COMERCIAL casi no. Pero un domingo es
+              casi todo EMERGENCIAS, mientras que un día hábil mezcla las dos, así que el
+              domingo recibe los factores más grandes justo donde el modelo menos se
+              sostiene: medido, la demanda del domingo cumple bastante menos de lo que el
+              factor le pide.
+              El exponente <strong>no es un parámetro</strong>: se mide solo con el último
+              año y vuelve a 1 si el domingo empieza a responder.
+              Probalo antes arriba, en «Probar un cambio».
+            </div></details>
+          </div>
+          <div class="col-12"><hr class="my-1"></div>
+          <div class="col-auto">
+            <div class="form-check form-switch mb-0">
+              <input class="form-check-input" type="checkbox" id="c-nivel-gbdt"
+                     {% if not puede_editar %}disabled{% endif %}>
+              <label class="form-check-label small" for="c-nivel-gbdt">
+                Segunda opinión del nivel diario
+              </label>
+            </div>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">Peso</label>
+            <input type="number" step="0.05" min="0" max="0.6"
+                   class="form-control form-control-sm" id="c-nivel-peso"
+                   style="width: 100px;">
+          </div>
+          <div class="col-12">
+            <details class="porque"><summary>Qué es</summary><div>
+              Un modelo de árboles que estima el total de llamadas del día con el mismo
+              clima y calendario, y se <strong>promedia</strong> con el de arriba en vez
+              de reemplazarlo. Va con el clima porque lo necesita prendido: sin él no
+              tiene rasgos.
+              El modelo <strong>solo</strong> pierde contra el de clima: la ganancia es de
+              mezclarlos, porque se equivocan en lugares distintos. A cambio el pronóstico
+              tiende a quedarse un poco corto, y corregir ese sesgo se probó y empeora todo
+              lo demás.
+              Peso 0 lo apaga y deja el pronóstico idéntico al de hoy.
+              Probalo antes arriba, en «Probar un cambio».
+            </div></details>
+          </div>
+        </div>
+        <details class="porque mt-2"><summary>Por qué el clima</summary><div>
+          En una distribuidora eléctrica la demanda se mueve con la temperatura. Pero
+          <strong>no es una recta: es una U</strong>. Los días de mayor demanda se parten
+          en dos grupos —los de mucho calor y los de mucho frío— y el medio no aparece.
+          Por eso el modelo usa grados-día de refrigeración <em>y</em> de calefacción,
+          más lluvia y ráfagas: una regresión sobre la temperatura a secas le pone un
+          signo a la U y no ve ninguno de los dos picos. Y cuenta la persistencia: lo que
+          rompe la red no es el día caluroso, es el tercero seguido.<br><br>
+          Se entrena sólo con clima <strong>observado</strong>; para pronosticar usa el
+          pronóstico meteorológico, que llega a 16 días. Entrenar con pronósticos le
+          enseñaría al planificador el error del meteorólogo además del propio.
+          Los datos los baja <code>scripts/clima_voltara.py</code>.
+        </div></details>
+
+        <hr>
+
+        <div class="row g-3">
+          <div class="col-md-4 col-6">
+            <label class="form-label small mb-1">Semanas de historia</label>
+            <input type="number" class="form-control form-control-sm" id="c-semanas"
+                   min="4" max="156">
+          </div>
+          <div class="col-md-4 col-6">
+            <label class="form-label small mb-1">Días de corrección de nivel</label>
+            <input type="number" class="form-control form-control-sm" id="c-dias-nivel"
+                   min="7" max="120">
+          </div>
+          <div class="col-md-4 col-12 d-flex align-items-end">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="c-nivel-tipo-dia"
+                     {% if not puede_editar %}disabled{% endif %}>
+              <label class="form-check-label small" for="c-nivel-tipo-dia">
+                Corregir el nivel por separado en días hábiles y fines de semana
+              </label>
+            </div>
+          </div>
+          <div class="col-12">
+            <details class="porque"><summary>Por qué</summary><div>
+              <strong>Semanas de historia</strong> es el parámetro más sensible del
+              pronóstico. La línea de base toma, para cada media hora, la mediana del mismo
+              día de semana en esas semanas. Con una ventana corta, un evento de dos
+              semanas —una ola de frío, un temporal— se le mete adentro a la mediana y los
+              días siguientes salen inflados: con pocas semanas, la mitad de los sábados de
+              la ventana pueden ser del evento. Por eso la ventana es larga.
+              <strong>Días de corrección de nivel</strong> es cuánto pasado se mira para
+              ajustar el perfil al volumen reciente. Cambiá de a uno y probalo antes arriba.
+            </div></details>
+          </div>
+          <div class="col-md-3 col-6">
+            <label class="form-label small mb-1">Días de deriva del reparto</label>
+            <input type="number" class="form-control form-control-sm" id="c-deriva-dias"
+                   min="0" max="60">
+          </div>
+          <div class="col-md-3 col-6">
+            <label class="form-label small mb-1">Tope de la deriva</label>
+            <input type="number" class="form-control form-control-sm" id="c-deriva-tope"
+                   min="0" max="0.5" step="0.05">
+          </div>
+          <div class="col-md-3 col-6">
+            <label class="form-label small mb-1">Días del reparto por tipo de día</label>
+            <input type="number" class="form-control form-control-sm" id="c-tipo-dia-dias"
+                   min="0" max="1100">
+          </div>
+          <div class="col-md-3 col-6">
+            <label class="form-label small mb-1">Tope de ese factor</label>
+            <input type="number" class="form-control form-control-sm" id="c-tipo-dia-tope"
+                   min="0" max="0.5" step="0.05">
+          </div>
+          <div class="col-12">
+            <details class="porque"><summary>Por qué</summary><div>
+              <strong>Deriva del reparto.</strong> El tramo de asignación dice el régimen
+              —&laquo;nos mandan la mitad&raquo;— pero lo que llega de verdad vibra
+              alrededor de ese número día a día, y aun acertando exactamente la demanda del
+              cliente ese vaivén solo ya deja error. Esto sigue la deriva de los últimos
+              días, acotada por el tope para que una semana rara no reescriba el tramo. En 0
+              queda apagado. Sirve sobre todo para mañana y para hoy: el reparto de un día
+              se parece bastante al del día anterior y poco al de una semana atrás.<br><br>
+              <strong>El reparto de un sábado no es el de un martes… pero los tramos por
+              skill ya lo saben.</strong> El share de un fin de semana suele ser algo menor
+              que el de los hábiles y el de un feriado algo mayor, y el motivo es el
+              <strong>volumen</strong>: el share sube con la demanda del día, porque el
+              cliente nos desborda cuando tiene un día grande. <strong>Aun así nace en 0, o
+              sea apagado, porque medido EMPEORA.</strong> El reparto se aplica por skill, y
+              el fin de semana tiene otra mezcla de colas: como cada skill tiene su propio
+              tramo, el share agregado del sábado ya baja solo por la mezcla. Aplicar el
+              factor encima lo cuenta dos veces. Queda la perilla porque el mecanismo es
+              real y si el reparto se vuelve a mover va a hacer falta; se prende después de
+              probarlo arriba.
+            </div></details>
+          </div>
+          <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="c-combinar-cliente"
+                     {% if not puede_editar %}disabled{% endif %}>
+              <label class="form-check-label small" for="c-combinar-cliente">
+                Combinar con el pronóstico que manda el cliente (dbo.Forecast)
+              </label>
+            </div>
+            <div class="fuente small text-muted" id="c-combinar-fuente"></div>
+            <details class="porque mt-1"><summary>Por qué</summary><div>
+              Se aplica sólo a <strong>domingos y feriados</strong>, mezclando el nivel del
+              día (la curva intradía y el reparto entre skills siguen siendo los nuestros).
+              El peso no se escribe acá: lo mide <em>Medir el peso</em>, abajo, que compara
+              los dos pronósticos contra lo que realmente entró. Sin pesos medidos esta llave
+              no hace nada y el pronóstico avisa por qué.<br><br>
+              Nace apagada porque la mejora es del error del <em>total del día</em> y no del
+              error por media hora, que empata: sirve para no citar gente de más un domingo,
+              no para el nivel del mes.
+            </div></details>
+          </div>
+          <div class="col-12">
+            <button id="btn-guardar-modelo" class="btn btn-sm btn-primary"
+                    {% if not puede_editar %}disabled{% endif %}>Guardar el modelo</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="fw-semibold">Combinar con el pronóstico que manda el cliente</span>
+        <div class="d-flex align-items-center gap-2">
+          <label for="c-dias" class="form-label small mb-0">Historia</label>
+          <select id="c-dias" class="form-select form-select-sm" style="width: auto;">
+            <option value="90">90 días</option>
+            <option value="180" selected>180 días</option>
+            <option value="365">365 días</option>
+          </select>
+          <button id="btn-medir-combinacion" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-rulers me-1"></i>Medir el peso
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div id="c-resultado" class="text-muted small">
+          dbo.Forecast lo manda el cliente y pronostica nuestras llamadas. Medir acá
+          calcula cuánto peso merece en cada tipo de día, comparando los dos contra lo que
+          realmente entró, con la antelación de «Probar un cambio». Tarda: son varias
+          corridas de la comparación. El peso se vuelve a medir y guardar solo todos los
+          lunes a la mañana (scripts/planificador_combinacion_semanal.py).
+        </div>
+        <details class="porque mt-2"><summary>Cómo se combina</summary><div>
+          <strong>Según quién acertó últimamente</strong>: el peso del cliente es el
+          inverso de su error en los últimos domingos y feriados contra el nuestro (el que
+          erró menos pesa más, con tope 0,5). <strong>Los sábados y los hábiles no se
+          combinan</strong>: ahí mezclarlo empeora. Ojo con el sesgo: combinado, el domingo
+          tiende a quedar por debajo de lo real, del lado que la operación prefiere
+          (pasarse cuesta más). Lo que da hoy lo muestra «Medir el peso».
+        </div></details>
+        <details class="porque mt-2"><summary>Por qué esto no es un promedio a mano</summary><div>
+          La calidad del pronóstico del cliente salta mucho de un mes a otro: hay meses en
+          que nos gana los fines de semana —y suelen ser los que se ven en el tablero, de
+          ahí la impresión de que está más cerca— y meses en que erra por mucho. Por eso el
+          peso se mide y se guarda con la fecha, en vez de discutirse. Se aplica sólo a
+          domingos y feriados —en los hábiles el peso medido sale negativo, o sea "restale
+          al cliente", que es exactamente lo que no hay que hacer— y está topeado en 0,5.
+        </div></details>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ CONFIGURACIÓN -->
+  <div class="tab-pane fade" id="tab-config">
+
+    <div class="row g-3">
+      <div class="col-12" id="slot-config-arriba" hidden></div>
+
+      {% if puede_editar %}
+      <div class="col-12">
+        <div class="small text-muted">
+          <i class="bi bi-eyedropper me-1"></i>El clima, las ventanas de historia y la
+          combinación con el pronóstico del cliente son parámetros del modelo de pronóstico:
+          están en
+          <button type="button" class="btn btn-link btn-sm p-0 align-baseline btn-ir-ancla"
+                  data-pestana="laboratorio" data-ancla="card-lab-modelo">Laboratorio</button>,
+          donde se prueban antes de dejarlos vigentes.
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Parámetros generales -->
+      <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-white fw-semibold">Parámetros de la campaña</div>
+          <div class="card-body">
+            <div class="row g-3" id="form-campana">
+              <div class="col-6">
+                <label class="form-label small mb-1">Intervalo (min)</label>
+                <input type="number" class="form-control form-control-sm" id="c-intervalo" min="5" max="60">
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-1">Techo de ocupación</label>
+                <input type="number" class="form-control form-control-sm" id="c-ocupacion"
+                       step="0.01" min="0.01" max="1" placeholder="vacío = sin techo">
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-1">Shrinkage de nómina</label>
+                <input type="number" class="form-control form-control-sm" id="c-shrinkage"
+                       step="0.001" min="0" max="0.94">
+                <div class="fuente small text-muted" id="c-shrinkage-fuente"></div>
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-1">Shrinkage de feriado</label>
+                <input type="number" class="form-control form-control-sm" id="c-shrinkage-feriado"
+                       step="0.001" min="0" max="0.89" placeholder="vacío = usa el general">
+                <div class="fuente small text-muted">El que no trabaja un feriado se carga con
+                  licencia: la malla es de voluntarios y suele faltar menos. La calibración lo mide.</div>
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-1">Shrinkage de sábado y domingo</label>
+                <input type="number" class="form-control form-control-sm" id="c-shrinkage-no-habil"
+                       step="0.001" min="0" max="0.89" placeholder="vacío = usa el general">
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-1">Break (min por hora planificada)</label>
+                <input type="number" class="form-control form-control-sm" id="c-break"
+                       step="0.5" min="0" max="15">
+                <div class="fuente small text-warning-emphasis" id="c-break-aviso"></div>
+              </div>
+              <div class="col-12">
+                <details class="porque"><summary>Por qué el break nace en cero</summary><div>
+                  La operación da <strong>5 minutos por hora planificada</strong>, tomados todos
+                  juntos: un turno de 6 horas tiene 30 minutos, o sea el <strong>8,33%</strong> del
+                  turno. Ese 8,33% <strong>ya está contado</strong> adentro del factor de
+                  <em>disponibilidad</em>, que se estima invirtiendo el nivel de servicio observado
+                  contra los agentes presentes — y el que está en su break está presente y no está
+                  sobre la cola. En el tablero de la operación esos minutos están adentro del
+                  Aux.<br><br>
+                  Ponerlo en 5 sin volver a medir la disponibilidad pide <strong>9% más de
+                  gente</strong> por una hora ya descontada. La perilla existe para poder hacer el
+                  cambio completo cuando se decida: declarar el break explícito y volver a medir la
+                  disponibilidad neta de break, que es más fácil de defender ante el cliente que un
+                  factor salido de invertir una fórmula.
+                </div></details>
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-1">Redondear para abajo (horas)</label>
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text">de</span>
+                  <input type="number" class="form-control" id="c-redondeo-desde" min="0" max="23"
+                         placeholder="—">
+                  <span class="input-group-text">a</span>
+                  <input type="number" class="form-control" id="c-redondeo-hasta" min="1" max="24"
+                         placeholder="—">
+                </div>
+                <div class="fuente small text-muted">En esa franja la gente a citar se redondea
+                  para abajo: de madrugada la cola pide 1 a 3 en línea y redondear para arriba
+                  suma una persona por una fracción. Nunca cita menos que los de en línea.
+                  Vacías = apagado.</div>
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-1">Reescalar el resto del día desde las (hora)</label>
+                <input type="number" class="form-control form-control-sm" id="c-intradia"
+                       min="6" max="22" placeholder="—">
+                <div class="fuente small text-muted">Al recalcular después de esa hora, lo que
+                  queda de hoy se corrige por cómo viene el día (lo entrado contra lo
+                  pronosticado). Antes de las 10-11 el acumulado es ruido. Vacío = apagado.</div>
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-1">Anclar al total del mes del cliente</label>
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text">peso</span>
+                  <input type="number" class="form-control" id="c-ancla-peso" min="0" max="1"
+                         step="0.05" placeholder="0">
+                  <span class="input-group-text">desde</span>
+                  <input type="number" class="form-control" id="c-ancla-desde" min="0" max="30"
+                         placeholder="7">
+                  <span class="input-group-text">días</span>
+                </div>
+                <div class="fuente small text-muted">Lleva lo que queda del mes hacia el total
+                  que manda el cliente (dbo.Forecast), sólo a partir de esos días de antelación:
+                  para mañana manda lo que pasó ayer. 0 = apagado. En Gasur, 0,75 desde 7 días.</div>
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-1">Paciencia por defecto (seg)</label>
+                <input type="number" class="form-control form-control-sm" id="c-paciencia" min="1">
+                <div class="fuente small text-muted" id="c-paciencia-fuente"></div>
+                <div class="fuente small text-muted">Sólo para los skills que no tengan
+                  la suya cargada: la paciencia real es por skill.</div>
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-1">Horizonte de ajuste de la paciencia (seg)</label>
+                <input type="number" class="form-control form-control-sm" id="c-horizonte"
+                       min="10" max="600">
+                <div class="fuente small text-muted">El rango de espera sobre el que se
+                  ajusta la paciencia medida.</div>
+              </div>
+              <div class="col-12">
+                <button id="btn-guardar-campana" class="btn btn-sm btn-primary"
+                        {% if not puede_editar %}disabled{% endif %}>Guardar</button>
+              </div>
+            </div>
+            <hr>
+            <details class="porque"><summary>Por qué</summary><div>
+              <strong>Shrinkage de nómina</strong>: qué proporción de las horas
+              <em>programadas</em> no llega a la cola. Sale de <code>dbo.payroll</code>,
+              separando ausentismo (estaba citado y no vino) de capacitación (vino y
+              cobra, pero no atiende). Las vacaciones y licencias largas
+              <em>no</em> cuentan: esa gente no estaba en la malla.<br><br>
+              <strong>Paciencia</strong>: cuánto aguanta el cliente en cola. No es
+              "lo que espera en promedio": es el parámetro de la exponencial que
+              reproduce el abandono observado. Se estima con Kaplan-Meier —que trata
+              bien a los que fueron atendidos, de los que sólo sabemos que aguantaron
+              <em>al menos</em> eso— y se ajusta al <strong>horizonte</strong>, o sea
+              al rango donde de verdad se espera cuando la operación funciona.<br><br>
+              <strong>Techo de ocupación</strong>: una dotación que cumple el objetivo
+              con la gente al 95% de ocupación no se sostiene; sube el ausentismo y
+              sube el TMO, que es justo el dato que el modelo tomó como fijo.
+            </div></details>
+          </div>
+        </div>
+      </div>
+
+      <!-- Calibración -->
+      <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <span class="fw-semibold">Calibración</span>
+            <button id="btn-calibrar" class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-rulers me-1"></i>Medir contra los datos
+            </button>
+          </div>
+          <div class="card-body">
+            <p class="small text-muted mb-2">
+              Los dos parámetros que no se suponen. Se muestran el vigente y el medido,
+              uno al lado del otro; dejarlos vigentes es un paso aparte porque mueven
+              toda la dotación.
+            </p>
+            <div id="calibracion"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pools -->
+      <div class="col-12">
+        <div class="card shadow-sm">
+          <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <span class="fw-semibold">Pools: quién atiende qué</span>
+            <small class="text-muted">
+              Se dimensiona por pool y no por skill porque los operadores son multiskill.
+            </small>
+          </div>
+          <div class="card-body" id="config-pools"></div>
+        </div>
+      </div>
+
+      <div class="col-12" id="slot-config-reparto" hidden></div>
+
+      <!-- Disponibilidad -->
+      <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <span class="fw-semibold">Disponibilidad por franja</span>
+            {% if puede_editar %}
+            <div class="d-flex gap-2">
+              <button id="btn-agregar-franja" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-plus-lg"></i></button>
+              <button id="btn-guardar-franjas" class="btn btn-sm btn-primary">Guardar</button>
+            </div>
+            {% endif %}
+          </div>
+          <div class="card-body">
+            <table class="table table-sm align-middle" id="tabla-franjas">
+              <thead class="table-light"><tr>
+                <th>Día</th><th>Desde</th><th>Hasta</th><th>Factor</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+            <details class="porque"><summary>Por qué</summary><div>
+              De los operadores <em>presentes</em>, qué proporción está realmente
+              sobre esta cola en un momento dado. Cubre pausas cortas, ACW largo y
+              tiempo en otras colas. Se mide invirtiendo el nivel de servicio que
+              efectivamente se logró: se busca la dotación que lo explica y se la
+              divide por la que estuvo.<br><br>
+              <strong>No es lo mismo que el shrinkage</strong> y se aplican
+              encadenados: Erlang → dividido disponibilidad → dividido (1 − shrinkage).
+              Poner las pausas en los dos lados descuenta dos veces lo mismo.
+            </div></details>
+          </div>
+        </div>
+      </div>
+
+      <!-- Códigos de payroll -->
+      <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-white fw-semibold">Códigos de RRHH</div>
+          <div class="card-body">
+            <div class="table-responsive" style="max-height: 300px;">
+              <table class="table table-sm mb-0" id="tabla-codigos">
+                <thead class="table-light"><tr>
+                  <th>Código</th><th>Clase</th><th>Descripción</th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <details class="porque mt-2"><summary>Por qué</summary><div>
+              Qué significa cada código de <code>dbo.payroll</code>. Es lo que hace
+              auditable el ausentismo: si el número no cierra, se puede ver
+              exactamente qué código lo está moviendo. Un código sin clasificar se
+              cuenta aparte y la calibración lo reporta, en vez de que se diluya en
+              el promedio.
+            </div></details>
+          </div>
+        </div>
+      </div>
+
+      <!-- Puestos que cuentan como dotación telefónica -->
+      <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-white fw-semibold">Puestos en la malla</div>
+          <div class="card-body">
+            <div id="puestos-resumen" class="small mb-2"></div>
+            <div class="table-responsive" style="max-height: 300px;">
+              <table class="table table-sm mb-0" id="tabla-puestos">
+                <thead class="table-light"><tr>
+                  <th>Puesto</th><th class="text-end">Personas</th>
+                  <th class="text-end">Horas</th><th>¿Cuenta?</th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <details class="porque mt-2"><summary>Por qué</summary><div>
+              La nómina de las sub-campañas que alimentan el pool no es la gente
+              que atiende: adentro hay supervisores, coordinadores, anfitriones,
+              back office. Contarlos hacía que la malla pareciera más cubierta de
+              lo que está y, sobre todo, que el <strong>ausentismo</strong> se
+              midiera sobre una población que no es la que se planifica: a la
+              estructura la nómina la carga con otra lógica y lo infla.<br><br>
+              Un puesto que no esté clasificado <strong>no</strong> cuenta y
+              aparece acá con las horas que trae, en vez de entrar solo a la malla
+              cuando RRHH crea uno nuevo.
+            </div></details>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    {# Zoom y paneo de los gráficos (hammer.js es el que maneja el pellizco y el arrastre). #}
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
+    <script>window.PLAN_PUEDE_EDITAR = {{ 'true' if puede_editar else 'false' }};</script>
+    <script src="{{ url_for('static', filename='js/planificador.js') }}"></script>
+    {# Partes de la pantalla en archivo propio: usan window.Planificador. #}
+    <script src="{{ url_for('static', filename='js/planificador_salud.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/planificador_insumos.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/planificador_vista.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/planificador_refuerzos.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/planificador_escenarios.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/planificador_laboratorio.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/planificador_qol.js') }}"></script>
+{% endblock %}

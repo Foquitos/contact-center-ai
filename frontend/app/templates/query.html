@@ -1,0 +1,214 @@
+{% extends "layout.html" %}
+{% from "macros/tip_del_dia.html" import render_tip %}
+
+{% block styles %}
+    {{ super() }} 
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/query.css') }}">
+{% endblock %}
+
+{# El ancho de esta pantalla lo mandan las capturas de los procedimientos, no el
+   texto: con el container angosto quedaban en ~550 px y había que abrir el visor
+   para leer cualquier campo. El tope real lo pone .main-container (1200 px). #}
+{% block page_container %}container-wide{% endblock %}
+
+{% block content %}
+<div class="container main-container">
+    <div class="card shadow-sm mb-4">
+        <div class="card-body p-4">
+            
+            {# Cabecera. La actualización de documentos vive ahora en el panel
+               Administración > Chatbots (permiso chatbot:admin). #}
+            <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-3">
+                <h1 class="h4 mb-0 text-primary"><i class="bi bi-robot"></i> Asistente Virtual</h1>
+                <button id="clearHistoryBtn" class="btn btn-outline-primary btn-sm" title="Empezar una gestión nueva: el asistente olvida el llamado anterior">
+                    <i class="bi bi-telephone-plus"></i> Nuevo llamado
+                </button>
+            </div>
+
+            {{ render_tip(tip, id="chatbot-tip-container", compacto=true) }}
+
+            {# --- ÁREA DE CHAT --- #}
+            <div id="chat-history-container" class="mb-3">
+                {# Estado vacío: además de saludar, dice las dos cosas que el operador
+                   nuevo no descubre solo (que las respuestas traen capturas y que se
+                   pueden agrandar). #}
+                <div class="chat-vacio text-center text-muted" id="chat-placeholder">
+                    <i class="bi bi-chat-dots"></i>
+                    <p class="mb-1 fw-semibold">Preguntá lo que necesites del procedimiento.</p>
+                    <p class="small mb-0">
+                        Las respuestas pueden traer capturas del sistema:
+                        <span class="text-nowrap"><i class="bi bi-arrows-fullscreen"></i> hacé clic para agrandarlas.</span>
+                    </p>
+                </div>
+            </div>
+
+            {# --- INPUT DE CONSULTA --- #}
+            <form id="consultForm" data-stream-url="{{ url_for('chatbot.stream_query') }}">
+                
+                {# Con DOS bots (consultas / cartas) el cambio de modo es parte del trabajo
+                   diario del operador, así que va como interruptor grande y no como un
+                   selector chico que se pasa por alto. Son <input type="radio"> con
+                   name="campana", así que el form envía el elegido igual que el <select>. #}
+                {% if show_toggle %}
+                <div class="btn-group w-100 mb-3" role="group" aria-label="Elegí qué necesitás" id="botToggle">
+                    {% for bot in available_bots %}
+                        {% set es_cartas = ('carta' in bot.nombre|lower) or ('digital' in bot.slug|lower) %}
+                        {# data-adjuntos: si ESTE bot acepta archivos. El clip se prende y
+                           apaga al cambiar de bot (ver app.js). #}
+                        <input type="radio" class="btn-check" name="campana" value="{{ bot.slug }}"
+                               id="botOpt{{ loop.index }}" autocomplete="off"
+                               data-adjuntos="{{ 1 if bot.permite_adjuntos else 0 }}"
+                               {% if bot.slug == default_slug or (not default_slug and loop.first) %}checked{% endif %}>
+                        <label class="btn btn-outline-primary py-2" for="botOpt{{ loop.index }}">
+                            <i class="bi bi-{{ 'envelope-paper-fill' if es_cartas else 'headset' }} fs-4 d-block"></i>
+                            <span class="fw-semibold">{{ 'Generar una carta' if es_cartas else 'Consultar' }}</span>
+                            <span class="d-block small opacity-75">{{ bot.nombre }}</span>
+                        </label>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {# Selector de chatbot: solo si el usuario tiene más de dos bots
+                   permitidos (sino el bot va fijo en un hidden). El backend ya
+                   filtró por permisos y resolución PCRC. #}
+                {% if show_selector %}
+                <div class="row g-2 mb-2">
+                    <div class="col-md-4">
+                        <select class="form-select form-select-sm bg-light" id="campaignSelect" name="campana">
+                            {% if not default_slug %}
+                                <option value="" selected>Elegí un chatbot...</option>
+                            {% endif %}
+                            {% for bot in available_bots %}
+                                <option value="{{ bot.slug }}"
+                                        data-adjuntos="{{ 1 if bot.permite_adjuntos else 0 }}"
+                                        {% if bot.slug == default_slug %}selected{% endif %}>{{ bot.nombre }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                {% elif default_slug and not show_toggle %}
+                    {% set bot_unico = available_bots | selectattr('slug', 'equalto', default_slug) | first %}
+                    <input type="hidden" name="campana" value="{{ default_slug }}"
+                           data-adjuntos="{{ 1 if bot_unico and bot_unico.permite_adjuntos else 0 }}">
+                {% endif %}
+
+                {# --- ADJUNTOS ---
+                   El operador que no entiende una pantalla no la sabe describir: mandar la
+                   captura es más rápido y más fiel que escribir el error. Se muestra solo
+                   si el usuario tiene el permiso `chatbot.adjuntos` (adjuntos_habilitados)
+                   Y el bot elegido los acepta (data-adjuntos), para no ofrecer nunca algo
+                   que la API va a rechazar. #}
+                {% if adjuntos_habilitados %}
+                <div id="adjuntosChips" class="d-flex flex-wrap gap-2 mb-2"></div>
+                {# Sin `name`: la lista de adjuntos la lleva el JS (hay que poder sacar uno
+                   solo, y los pegados con Ctrl+V nunca pasan por el input). El FormData
+                   los agrega a mano al enviar. #}
+                <input type="file" id="adjuntosInput" class="d-none" multiple
+                       accept="image/png,image/jpeg,image/webp,application/pdf">
+                {% endif %}
+
+                <div class="input-group">
+                    {% if adjuntos_habilitados %}
+                    <button class="btn btn-outline-secondary" type="button" id="adjuntarBtn"
+                            title="Adjuntar una captura o un PDF (también podés pegar con Ctrl+V)">
+                        <i class="bi bi-paperclip"></i>
+                    </button>
+                    {% endif %}
+                    <input type="text" class="form-control form-control-lg" name="query" id="queryInput"
+                           placeholder="Escribe tu consulta aquí..." required autocomplete="off">
+                    <button class="btn btn-primary" type="submit" id="submitButton">
+                        <i class="bi bi-send-fill"></i>
+                    </button>
+                </div>
+                <div class="form-text text-end" id="statusText">Listo para consultar</div>
+            </form>
+
+            {# --- CALIFICACIÓN ---
+               Antes era una escala de 10 emojis + comentario + botón Enviar: 3 clics
+               para un operador que está al teléfono. Resultado: 35 calificaciones en
+               9 meses sobre ~9.000 consultas (0,4%), o sea sin señal de calidad.
+               Ahora son dos botones que envían solo, y el comentario aparece únicamente
+               al marcar 👎, que es donde está la información útil ("qué faltó").
+               Se sigue usando la escala 1-10 de la API: 👎 = 1, 👍 = 10. #}
+            <div id="rating-container" class="mt-3 pt-3 border-top" style="display: none;">
+                <div class="d-flex align-items-center justify-content-center gap-2 flex-wrap">
+                    <span class="text-muted small">¿Te sirvió esta respuesta?</span>
+                    <button type="button" class="btn btn-outline-success btn-sm" data-rating="10">
+                        <i class="bi bi-hand-thumbs-up-fill"></i> Sí
+                    </button>
+                    <button type="button" class="btn btn-outline-danger btn-sm" data-rating="1">
+                        <i class="bi bi-hand-thumbs-down-fill"></i> No
+                    </button>
+                </div>
+
+                {# Solo se muestra tras un 👎. El envío ya se hizo: esto lo complementa. #}
+                <div class="row g-2 justify-content-center mt-2" id="comment-row" style="display: none;">
+                    <div class="col-md-8">
+                        <input type="text" class="form-control form-control-sm" id="commentText"
+                               placeholder="¿Qué faltó o qué estuvo mal? (opcional)">
+                    </div>
+                    <div class="col-md-auto">
+                        <button id="submitRatingButton" class="btn btn-sm btn-success w-100">Enviar</button>
+                    </div>
+                </div>
+                <div id="rating-feedback" class="mt-2 text-center small"></div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+{# --- VISOR DE CAPTURAS ---
+   Un procedimiento suele traer varias pantallas seguidas, y el operador está en
+   llamada buscando un dato chico (un campo, un número de medidor). Por eso el visor
+   tiene zoom de verdad (rueda, botones, +/-/0), arrastre para moverse dentro de la
+   captura y paso a la siguiente con las flechas, sin cerrar y volver a abrir. #}
+<div class="modal fade" id="imageLightboxModal" tabindex="-1" aria-hidden="true" aria-label="Visor de capturas">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-transparent border-0 shadow-none">
+            <div class="modal-body p-0">
+                <div class="visor-marco" id="visorMarco">
+                    <button type="button" class="visor-nav anterior" id="visorAnterior" aria-label="Captura anterior">
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
+                    <img id="lightboxImage" src="" alt="Captura del procedimiento">
+                    <button type="button" class="visor-nav siguiente" id="visorSiguiente" aria-label="Captura siguiente">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+
+                <div class="visor-barra">
+                    <span id="visorContador" class="badge bg-dark bg-opacity-75"></span>
+                    <button type="button" class="btn btn-light" id="visorMenos" title="Alejar (tecla -)">
+                        <i class="bi bi-zoom-out"></i>
+                    </button>
+                    <button type="button" class="btn btn-light" id="visorMas" title="Acercar (tecla +)">
+                        <i class="bi bi-zoom-in"></i>
+                    </button>
+                    <button type="button" class="btn btn-light" id="visorReset" title="Tamaño original (tecla 0)">
+                        <i class="bi bi-aspect-ratio"></i>
+                    </button>
+                    <a class="btn btn-light" id="visorAbrir" href="#" target="_blank" rel="noopener"
+                       title="Abrir la captura en otra pestaña">
+                        <i class="bi bi-box-arrow-up-right"></i>
+                    </a>
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal" title="Cerrar (Esc)">
+                        <i class="bi bi-x-lg"></i> Cerrar
+                    </button>
+                </div>
+
+                <div class="text-center mt-2">
+                    <span id="lightboxCaption" class="text-white small bg-dark bg-opacity-75 py-1 px-3 rounded d-inline-block"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }} 
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.11/dist/purify.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% endblock %}

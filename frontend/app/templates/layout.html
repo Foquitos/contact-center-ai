@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='imagenes/favico.png') }}">
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% if session.api_token and not session.must_change_password %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/asistente_manual.css') }}">
+    {% if tutorial_cfg %}<link rel="stylesheet" href="{{ url_for('static', filename='css/tutorial.css') }}">{% endif %}
+    {% endif %}
+
+    {% block styles %}{% endblock %}
+    
+    <title>{% block title %}Acme Solutions{% endblock %}</title>
+</head>
+<body class="d-flex flex-column min-vh-100">
+    <nav class="navbar navbar-expand-lg bg-body-tertiary shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('main.index') }}">
+                <img src="{{ url_for('static', filename='imagenes/banerchat.png') }}" alt="Logo de Contact Center AI" class="navbar-logo">
+            </a>
+
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+                    aria-controls="navbarNav" aria-expanded="false" aria-label="Abrir menú de navegación">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+                    {% if session.api_token %}
+
+                        {# --- Bucle Dinámico del Menú --- #}
+                        {% for item in dynamic_menu %}
+
+                            {% if item.children %}
+                                {# --- Renderizado de Dropdown --- #}
+                                {% set endpoints_hijos = item.children | map(attribute='endpoint') | list %}
+                                <li class="nav-item dropdown">
+                                    <a class="nav-link dropdown-toggle {% if request.endpoint in endpoints_hijos %}active{% endif %}"
+                                       href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                        {% if item.icon %}<i class="bi {{ item.icon }} me-1"></i>{% endif %}
+                                        {{ item.label }}
+                                    </a>
+                                    <ul class="dropdown-menu dropdown-menu-end dropdown-menu-grouped">
+                                        {# Encabezado + separador cada vez que cambia el grupo. Como los
+                                           hijos ya vienen filtrados por permiso, así nunca queda un
+                                           separador colgado sobre un bloque vacío. #}
+                                        {% set ns = namespace(grupo=None) %}
+                                        {% for child in item.children %}
+                                            {% if child.group and child.group != ns.grupo %}
+                                                {% if not loop.first %}<li><hr class="dropdown-divider"></li>{% endif %}
+                                                <li><h6 class="dropdown-header">{{ child.group }}</h6></li>
+                                                {% set ns.grupo = child.group %}
+                                            {% endif %}
+                                            <li>
+                                                <a class="dropdown-item {% if request.endpoint == child.endpoint %}active{% endif %}"
+                                                   href="{{ url_for(child.endpoint) }}">
+                                                    {% if child.icon %}<i class="bi {{ child.icon }} me-2"></i>{% endif %}
+                                                    {{ child.label }}
+                                                </a>
+                                            </li>
+                                        {% endfor %}
+                                    </ul>
+                                </li>
+
+                            {% else %}
+                                {# --- Renderizado de Link Normal --- #}
+                                <li class="nav-item">
+                                    <a class="nav-link {% if request.endpoint == item.endpoint %}active{% endif %}"
+                                    href="{{ url_for(item.endpoint) }}">
+                                        {% if item.icon %}<i class="bi {{ item.icon }} me-1"></i>{% endif %}
+                                        {{ item.label }}
+                                    </a>
+                                </li>
+                            {% endif %}
+
+                        {% endfor %}
+
+                        {# --- Menú de Usuario (Fijo, siempre visible si logueado) --- #}
+                        <li class="nav-item dropdown ms-lg-2">
+                            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="bi bi-person-circle"></i> {{ session.user_display_name }}
+                            </a>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><h6 class="dropdown-header">Usuario: {{ session.user_display_name }}</h6></li>
+                                {% if session.is_super_admin %}
+                                    <li><span class="dropdown-header text-success fw-bold"><i class="bi bi-shield-fill-check"></i> Super Admin</span></li>
+                                {% endif %}
+                                <li><hr class="dropdown-divider"></li>
+                                {# Tutorial guiado. "Esta pantalla" solo aparece donde hay uno;
+                                   el recorrido completo, siempre que la persona llegue al menos
+                                   a una pantalla con tutorial (ver utils/tutorial_config.py). #}
+                                {% if tutorial_cfg %}
+                                    {% if tutorial_cfg.actual %}
+                                    <li>
+                                        <button type="button" class="dropdown-item" data-tutorial="">
+                                            <i class="bi bi-life-preserver me-2"></i>Ver tutorial de esta pantalla
+                                        </button>
+                                    </li>
+                                    {% endif %}
+                                    <li>
+                                        <button type="button" class="dropdown-item" data-tutorial="recorrido">
+                                            <i class="bi bi-signpost-split me-2"></i>Recorrido guiado completo
+                                        </button>
+                                    </li>
+                                    <li><hr class="dropdown-divider"></li>
+                                {% endif %}
+                                <li>
+                                    <a class="dropdown-item" href="{{ url_for('auth.change_password') }}">
+                                        <i class="bi bi-key me-2"></i>Cambiar Contraseña
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}">
+                                        <i class="bi bi-box-arrow-right me-2"></i>Cerrar Sesión
+                                    </a>
+                                </li>
+                            </ul>
+                        </li>
+
+                    {% else %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'login' %}active{% endif %}" href="{{ url_for('auth.login') }}">Iniciar Sesión</a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    {% if session.get('simulando_rol') %}
+    <div class="bg-warning text-dark py-2 px-3 d-flex justify-content-between align-items-center shadow-sm sticky-top">
+        <span>
+            <i class="bi bi-eye"></i>
+            <strong>Modo simulación:</strong> estás viendo el sistema como el rol
+            "{{ session['simulando_rol']['name'] }}". Las acciones que hagas quedan registradas a tu nombre.
+        </span>
+        <form method="POST" action="{{ url_for('admin.salir_simulacion') }}" class="mb-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <button type="submit" class="btn btn-sm btn-dark">
+                <i class="bi bi-box-arrow-left"></i> Salir de la simulación
+            </button>
+        </form>
+    </div>
+    {% endif %}
+
+    {# Ancho de la página: por defecto el container angosto de Bootstrap, que va bien
+       para formularios y pantallas de lectura. Las pantallas con tablas o dashboards
+       sobrescriben el bloque con "container-wide" para aprovechar el monitor. #}
+    <div class="{% block page_container %}container{% endblock %} mt-4 flex-grow-1">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ category or 'info' }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </div>
+
+    <footer class="footer mt-auto py-3 bg-light text-center">
+        <div class="container">
+            <span class="text-muted">© <span id="year"></span> Acme Solutions. Todos los derechos reservados.</span>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.11/dist/purify.min.js"></script>
+    
+    <script>
+        // Script para actualizar el año del footer automáticamente
+        document.getElementById('year').textContent = new Date().getFullYear();
+    </script>
+
+    {# Coral, la burbuja de ayuda: responde con el manual del usuario desde cualquier pantalla.
+       No se muestra sin sesión (login) ni mientras el sistema exige cambiar la
+       contraseña: en esas dos pantallas no hay nada que consultar todavía. #}
+    {% if session.api_token and not session.must_change_password %}
+        {% include "partials/asistente_manual.html" %}
+        <script src="{{ url_for('static', filename='js/asistente_manual.js') }}"></script>
+        {# El tutorial guiado va DESPUÉS de Coral: usa su dibujo (#coral-pez). #}
+        {% if tutorial_cfg %}{% include "partials/tutorial.html" %}{% endif %}
+    {% endif %}
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

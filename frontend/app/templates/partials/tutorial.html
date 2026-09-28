@@ -1,0 +1,27 @@
+{#
+  Tutorial guiado: recorre la pantalla real resaltando un control por vez.
+
+  Acá va solo la cáscara —la config y el botón para volver a verlo—; el motor está
+  en static/js/tutorial.js y el contenido de cada pantalla en tutorial_pasos.js.
+
+  La config la arma el servidor (app/utils/tutorial_config.py) con los permisos de
+  la sesión: el recorrido nunca incluye una pantalla que la persona no puede abrir.
+
+  Depende del dibujo de Coral (símbolo #coral-pez), que viene en el partial del
+  asistente: los dos se incluyen juntos desde layout.html, bajo la misma condición.
+#}
+<script type="application/json" id="tutorial-config">{{ tutorial_cfg | tojson }}</script>
+
+{% if tutorial_cfg.actual %}
+{# Queda apilado arriba de la burbuja de Coral. Nace oculto y lo muestra el motor solo
+   si esta pantalla tiene pasos registrados en el JS, así nunca hay un botón que no
+   haga nada. #}
+<button type="button" id="tour-fab" class="tour-fab" hidden
+        title="Volver a ver el tutorial de esta pantalla">
+    <i class="bi bi-life-preserver" aria-hidden="true"></i>
+    <span>Ver tutorial</span>
+</button>
+{% endif %}
+
+<script src="{{ url_for('static', filename='js/tutorial.js') }}"></script>
+<script src="{{ url_for('static', filename='js/tutorial_pasos.js') }}"></script>

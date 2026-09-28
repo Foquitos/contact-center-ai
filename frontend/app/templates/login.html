@@ -1,0 +1,53 @@
+{% extends "layout.html" %}
+
+{% block title %}Iniciar Sesión - Acme Chat CSV{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 col-lg-4">
+        <div class="card shadow-sm">
+             <img src="{{ url_for('static', filename='imagenes/banerchat.png') }}" alt="banerchat" class="card-img-top">
+             <div class="card-body">
+                <h2 class="card-title text-center mb-4">Iniciar Sesión</h2>
+                
+                {# --- INICIO DEL FORMULARIO --- #}
+                <form method="POST" action="{{ url_for('auth.login') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    {# User-agent del navegador capturado por JS y enviado como
+                       dato del formulario: viaja de punta a punta sin depender de
+                       headers (que un proxy podía descartar). Ver routes/auth.py. #}
+                    <input type="hidden" name="client_user_agent" id="client_user_agent"/>
+                    {# --- CAMPO USUARIO (DOCUMENTO) --- #}
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Usuario (Documento)</label>
+                        <input type="number" class="form-control" id="username" name="username" required> 
+                        {# ^^^ Este es el input para el documento/username ^^^ #}
+                    </div>
+                    
+                    {# --- CAMPO CONTRASEÑA --- #}
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Contraseña</label>
+                        <input type="password" class="form-control" id="password" name="password" required>
+                        {# ^^^ Este es el input para la contraseña ^^^ #}
+                    </div>
+                    
+                    {# --- BOTÓN DE ENVÍO --- #}
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Ingresar</button>
+                    </div>
+                </form>
+                {# --- FIN DEL FORMULARIO --- #}
+                
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+    // El navegador siempre conoce su propio user-agent; lo ponemos en el campo
+    // oculto antes de enviar (cubre login exitoso y fallido).
+    (function () {
+        var el = document.getElementById("client_user_agent");
+        if (el) el.value = navigator.userAgent || "";
+    })();
+</script>
+{% endblock %}

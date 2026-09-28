@@ -1,0 +1,52 @@
+{% extends "layout.html" %}
+
+{% block title %}Asistente de Datos para Gerencia{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm mb-3">
+    <div class="card-body py-3 d-flex justify-content-between align-items-center">
+        <h1 class="h5 mb-0 text-primary">
+            <i class="bi bi-database me-2"></i>Asistente de Datos (Gerencia)
+        </h1>
+        <button id="btn-nueva-conversacion" class="btn btn-outline-danger btn-sm" title="Empezar de cero">
+            <i class="bi bi-trash3"></i> Nueva conversación
+        </button>
+    </div>
+</div>
+
+{# --- ÁREA DE CONVERSACIÓN --- #}
+<div id="chat-historial" class="mb-3" style="max-height: 65vh; overflow-y: auto;">
+    <div id="chat-placeholder" class="text-center text-muted py-4">
+        <i class="bi bi-graph-up fs-1"></i>
+        <p class="mt-2 mb-3">Preguntá en lenguaje natural sobre llamadas, reclamos SAR, turnos,
+            operadores, equipos o dotación. Puedo comparar campañas y armar gráficos.</p>
+        <div class="d-flex flex-wrap gap-2 justify-content-center" id="ejemplos-chips">
+            <button class="btn btn-sm btn-outline-secondary ejemplo-chip">¿Cuántas llamadas recibió Hidra ayer?</button>
+            <button class="btn btn-sm btn-outline-secondary ejemplo-chip">¿Qué porcentaje de llamadas de Hidra generó un ODT esta semana?</button>
+            <button class="btn btn-sm btn-outline-secondary ejemplo-chip">Tasa de conversión de llamadas a turnos de Odonto Plus este mes, por operador</button>
+            <button class="btn btn-sm btn-outline-secondary ejemplo-chip">Compará las llamadas de Hidra y Odonto Plus de la última semana</button>
+        </div>
+    </div>
+</div>
+
+{# --- INPUT DE CONSULTA --- #}
+<form id="sql-form" class="card shadow-sm">
+    <div class="card-body p-2">
+        <div class="input-group">
+            <textarea class="form-control" id="query" rows="2" required
+                placeholder="Ej: ¿Cuáles fueron los motivos de reclamo más frecuentes de Hidra este mes?"></textarea>
+            <button type="submit" class="btn btn-primary px-4" id="btn-consultar">
+                <i class="bi bi-send"></i>
+                <span class="spinner-border spinner-border-sm d-none" id="loading-spinner" role="status" aria-hidden="true"></span>
+            </button>
+        </div>
+        <div class="form-text ms-1" id="estado-consulta"></div>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="{{ url_for('static', filename='js/sql_agent.js') }}"></script>
+{% endblock %}

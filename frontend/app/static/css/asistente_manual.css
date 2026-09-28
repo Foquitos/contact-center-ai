@@ -1,0 +1,240 @@
+/* Coral, la burbuja de ayuda. Se carga en todas las pantallas desde layout.html, así
+   que todo va namespaceado con .asistente-* para no pisar nada. */
+
+.asistente-fab {
+    position: fixed;
+    right: 1.25rem;
+    bottom: 1.25rem;
+    z-index: 1045; /* arriba del contenido, debajo de los modales de Bootstrap (1055) */
+    width: 3.25rem;
+    height: 3.25rem;
+    border: none;
+    border-radius: 50%;
+    background-color: var(--acme-primary, #003366);
+    color: #fff;
+    font-size: 1.35rem;
+    line-height: 1;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+    transition: transform 0.15s ease-in-out, background-color 0.15s ease-in-out;
+}
+
+.asistente-fab:hover,
+.asistente-fab:focus-visible {
+    background-color: var(--acme-primary-hover, #002244);
+    transform: translateY(-2px);
+}
+
+/* Coral adentro del botón: el cuerpo toma el color del botón (currentColor = blanco),
+   las aletas y las burbujas van en el cian de la marca. */
+.asistente-fab-pez {
+    width: 1.9rem;
+    height: 1.9rem;
+    color: #fff;
+    /* Nada aparatoso: apenas se mueve, como un pez quieto en el agua. */
+    animation: coral-flotar 4s ease-in-out infinite;
+}
+
+.asistente-fab:hover .asistente-fab-pez { animation-duration: 1.6s; }
+
+@keyframes coral-flotar {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50%      { transform: translateY(-2px) rotate(-3deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .asistente-fab-pez { animation: none; }
+}
+
+/* El mismo botón cierra: se cambia el pez por una cruz. */
+.asistente-fab-cerrar { display: none; }
+.asistente-fab.is-open .asistente-fab-pez { display: none; }
+.asistente-fab.is-open .asistente-fab-cerrar { display: inline-block; }
+
+.asistente-avatar {
+    width: 2.1rem;
+    height: 2.1rem;
+    flex-shrink: 0;
+    color: #fff;  /* sobre el azul del encabezado */
+}
+
+.asistente-vacio-pez {
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+.asistente-panel {
+    position: fixed;
+    right: 1.25rem;
+    bottom: 5.25rem;
+    z-index: 1045;
+    display: flex;
+    flex-direction: column;
+    width: min(400px, calc(100vw - 2.5rem));
+    max-height: min(620px, calc(100vh - 8rem));
+    background-color: var(--acme-surface, #fff);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: var(--card-radius, 12px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+    overflow: hidden;
+}
+
+.asistente-panel[hidden] { display: none; }
+
+.asistente-header {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.85rem 1rem;
+    background-color: var(--acme-primary, #003366);
+    color: #fff;
+}
+
+.asistente-titulo {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.asistente-subtitulo {
+    font-size: 0.78rem;
+    opacity: 0.85;
+}
+
+.asistente-subtitulo a { color: #fff; text-decoration: underline; }
+
+.asistente-header .btn-close {
+    filter: invert(1) grayscale(100%) brightness(200%);
+    opacity: 0.8;
+}
+
+.asistente-mensajes {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 0.9rem 1rem;
+    background-color: var(--acme-bg, #f4f6f9);
+    font-size: 0.9rem;
+}
+
+.asistente-vacio {
+    color: var(--acme-text-muted, #6c757d);
+    font-size: 0.85rem;
+}
+
+.asistente-sugerencias {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.asistente-chip {
+    border: 1px solid rgba(0, 51, 102, 0.25);
+    background-color: #fff;
+    color: var(--acme-primary, #003366);
+    border-radius: 999px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8rem;
+    transition: var(--transition, all 0.2s ease-in-out);
+}
+
+.asistente-chip:hover { background-color: rgba(0, 51, 102, 0.07); }
+
+.asistente-msg {
+    margin-bottom: 0.7rem;
+    padding: 0.6rem 0.8rem;
+    border-radius: 12px;
+    max-width: 92%;
+    overflow-wrap: anywhere;
+}
+
+.asistente-msg-user {
+    margin-left: auto;
+    background-color: var(--acme-primary, #003366);
+    color: #fff;
+    border-bottom-right-radius: 4px;
+}
+
+.asistente-msg-bot {
+    background-color: var(--acme-surface, #fff);
+    border: 1px solid rgba(0, 0, 0, 0.07);
+    border-bottom-left-radius: 4px;
+}
+
+/* El markdown de la respuesta: compacto, para que entre en el panel. */
+.asistente-msg-bot p { margin-bottom: 0.5rem; }
+.asistente-msg-bot p:last-child { margin-bottom: 0; }
+.asistente-msg-bot ul,
+.asistente-msg-bot ol { margin-bottom: 0.5rem; padding-left: 1.15rem; }
+.asistente-msg-bot li { margin-bottom: 0.2rem; }
+.asistente-msg-bot a { color: var(--acme-primary, #003366); }
+.asistente-msg-bot code {
+    background-color: rgba(0, 0, 0, 0.05);
+    padding: 0.05rem 0.25rem;
+    border-radius: 4px;
+}
+
+.asistente-error {
+    background-color: #fff3cd;
+    border-color: #ffe69c;
+    color: #664d03;
+}
+
+/* Puntitos mientras el modelo todavía no largó el primer token. */
+.asistente-pensando span {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 3px;
+    border-radius: 50%;
+    background-color: var(--acme-text-muted, #6c757d);
+    animation: asistente-latido 1.1s infinite ease-in-out;
+}
+
+.asistente-pensando span:nth-child(2) { animation-delay: 0.15s; }
+.asistente-pensando span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes asistente-latido {
+    0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+    40% { opacity: 1; transform: translateY(-3px); }
+}
+
+.asistente-form {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-end;
+    padding: 0.7rem;
+    background-color: var(--acme-surface, #fff);
+    border-top: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+.asistente-form textarea {
+    resize: none;
+    max-height: 7rem;
+    font-size: 0.9rem;
+    border-radius: var(--input-radius, 8px);
+}
+
+.asistente-enviar {
+    background-color: var(--acme-primary, #003366);
+    color: #fff;
+    border-radius: var(--btn-radius, 8px);
+    padding: 0.45rem 0.75rem;
+}
+
+.asistente-enviar:hover:not(:disabled) { background-color: var(--acme-primary-hover, #002244); color: #fff; }
+.asistente-enviar:disabled { opacity: 0.55; }
+
+/* En pantallas chicas el panel ocupa el ancho completo: media pantalla de celular
+   con un chat de 400px al costado no se lee. */
+@media (max-width: 480px) {
+    .asistente-panel {
+        right: 0.5rem;
+        left: 0.5rem;
+        bottom: 4.75rem;
+        width: auto;
+        max-height: calc(100vh - 7rem);
+    }
+}
+
+@media print {
+    .asistente-fab, .asistente-panel { display: none !important; }
+}

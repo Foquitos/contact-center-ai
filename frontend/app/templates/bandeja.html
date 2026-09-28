@@ -1,0 +1,743 @@
+{% extends "layout.html" %}
+
+{% block title %}Dashboard Auditorías{% endblock %}
+
+{% block styles %}
+    {{ super() }}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bandeja.css') }}">
+{% endblock %}
+
+{% block page_container %}container-wide{% endblock %}
+
+{% block content %}
+<div class="bandeja-page py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h4 class="mb-0">Dashboard de Auditorías</h4>
+            <small class="text-muted" id="dashboard-subtitulo">
+                Resumen y apertura por atributo de plantilla · Filtros privados por sesión
+            </small>
+        </div>
+    </div>
+
+    <!-- Aviso de novedad: Analista de Auditorías IA -->
+    <div id="novedad-dashboard-analista" class="alert alert-dismissible fade show novedad-dashboard mb-3 shadow-sm" role="alert" style="display: none;">
+        <div class="d-flex align-items-center">
+            <div class="me-2 fs-5 text-primary"><i class="bi bi-robot"></i></div>
+            <div class="flex-grow-1">
+                <strong>Nuevo: Analista de Auditorías con Inteligencia Operativa</strong> — Ahora contás con un consultor analítico integrado en el Dashboard.
+                Podés solicitar <strong>informes ejecutivos gerenciales</strong>, diagnósticos de causas raíz de <strong>errores críticos</strong>, <strong>planes de coaching</strong> individuales por asesor, comparativas entre equipos y exportar a Word/Outlook o PDF.
+                <a href="{{ url_for('docs.documentacion') }}#dashboard-analista-ia" target="_blank" rel="noopener" class="alert-link ms-1">
+                    Ver manual detallado <i class="bi bi-box-arrow-up-right"></i>
+                </a>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+        </div>
+    </div>
+
+    <!-- Aviso de novedad: Comparación Mes a Mes / Ciclos -->
+    <div id="novedad-dashboard-ciclos" class="alert alert-dismissible fade show novedad-dashboard mb-3 shadow-sm" role="alert" style="display: none;">
+        <i class="bi bi-stars text-primary me-1"></i>
+        <strong>Nuevo:</strong> Ahora podés comparar ciclos cerrados (<strong>mes a mes</strong> o por semana) de forma numérica directa.
+        En la pestaña <strong>Tablas comparativas</strong>, activá el modo <strong><i class="bi bi-calendar3-range"></i> Mes a Mes / Ciclos</strong> para ver cada período en columnas, su variación y si el operador mejoró o empeoró. Además, tenés nuevos presets rápidos para <em>Mes anterior</em> y <em>Últimos 2, 3 y 6 meses</em>.
+        <a href="{{ url_for('docs.documentacion') }}#dashboard" target="_blank" rel="noopener" class="alert-link ms-1">
+            Ver manual <i class="bi bi-box-arrow-up-right"></i>
+        </a>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+    </div>
+
+    <!-- Filtros -->
+    <form id="filtros-form" class="card card-body mb-3 shadow-sm p-3">
+        <!-- Fila 1: Selectores de cascada y Fechas -->
+        <div class="row g-2 align-items-end mb-2">
+            <div class="col-lg-3 col-md-6">
+                <label class="form-label mb-1">Empresa <span class="text-danger">*</span></label>
+                <select id="f-empresa" class="form-select form-select-sm" required>
+                    <option value="">Cargando…</option>
+                </select>
+            </div>
+            <div class="col-lg-3 col-md-6">
+                <label class="form-label mb-1">Campaña <span class="text-danger">*</span></label>
+                <select id="f-campana" class="form-select form-select-sm" required disabled>
+                    <option value="">— Esperando empresa —</option>
+                </select>
+            </div>
+            <div class="col-lg-3 col-md-6">
+                <label class="form-label mb-1">Plantilla <span class="text-danger">*</span></label>
+                <select id="f-plantilla" class="form-select form-select-sm" required disabled>
+                    <option value="">— Esperando campaña —</option>
+                </select>
+            </div>
+            <div class="col-lg-3 col-md-6">
+                <label class="form-label mb-1">Rango de fechas</label>
+                <div class="d-flex gap-2">
+                    <input type="text" id="f-desde" class="form-control form-control-sm" placeholder="Desde" required>
+                    <input type="text" id="f-hasta" class="form-control form-control-sm" placeholder="Hasta" required>
+                </div>
+            </div>
+        </div>
+
+        <!-- Fila 2: Barra de Períodos Rápidos (Presets) -->
+        <div class="presets-bar d-flex align-items-center gap-2 flex-wrap mb-2">
+            <span class="small text-muted text-nowrap fw-medium">
+                <i class="bi bi-clock-history"></i> Períodos rápidos:
+            </span>
+            <div class="btn-group btn-group-sm flex-wrap" role="group" aria-label="Presets de fecha">
+                <button type="button" class="btn btn-outline-secondary preset-fecha" data-dias="7">7 días</button>
+                <button type="button" class="btn btn-outline-secondary preset-fecha" data-dias="30">30 días</button>
+                <button type="button" class="btn btn-outline-secondary preset-fecha" data-dias="mes-actual">Mes actual</button>
+                <button type="button" class="btn btn-outline-secondary preset-fecha" data-dias="mes-anterior" title="Mes cerrado anterior completo">Mes anterior</button>
+                <button type="button" class="btn btn-outline-secondary preset-fecha" data-dias="2-meses" title="Últimos 2 meses">Últimos 2 meses</button>
+                <button type="button" class="btn btn-outline-secondary preset-fecha" data-dias="3-meses" title="Últimos 3 meses (trimestre)">Últimos 3 meses</button>
+                <button type="button" class="btn btn-outline-secondary preset-fecha" data-dias="6-meses" title="Últimos 6 meses (semestre)">Últimos 6 meses</button>
+            </div>
+        </div>
+
+        <!-- Fila 3: Botón de Carga + Opciones agrupadas + Estado -->
+        <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap pt-1">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <button type="submit" class="btn btn-primary btn-sm px-3" id="btn-cargar">
+                    <i class="bi bi-search"></i> Cargar dashboard
+                </button>
+                <span id="estado-resultado" class="ms-2 text-muted small"></span>
+            </div>
+
+            <div class="d-flex align-items-center gap-3 flex-wrap ms-auto">
+                <!-- Bloque Por fecha de: -->
+                <div class="d-inline-flex align-items-center gap-2 text-nowrap">
+                    <label class="form-label mb-0 small text-muted">Por fecha de:</label>
+                    <div class="btn-group btn-group-sm" role="group" id="base-fecha" aria-label="Base de la fecha">
+                        <input type="radio" class="btn-check" name="basef" id="bf-interaccion" value="interaccion" checked>
+                        <label class="btn btn-outline-secondary" for="bf-interaccion">Interacción</label>
+
+                        <input type="radio" class="btn-check" name="basef" id="bf-auditoria" value="auditoria">
+                        <label class="btn btn-outline-secondary" for="bf-auditoria">Auditoría</label>
+                    </div>
+                </div>
+
+                <div class="vr d-none d-md-block"></div>
+
+                <!-- Bloque Agrupar por: -->
+                <div class="d-inline-flex align-items-center gap-2 text-nowrap">
+                    <label class="form-label mb-0 small text-muted">Agrupar por:</label>
+                    <div class="btn-group btn-group-sm" role="group" id="agrupador">
+                        <input type="radio" class="btn-check" name="grupo" id="g-general" value="general" checked>
+                        <label class="btn btn-outline-secondary" for="g-general">General</label>
+
+                        <input type="radio" class="btn-check" name="grupo" id="g-equipo" value="Equipo">
+                        <label class="btn btn-outline-secondary" for="g-equipo">Equipo</label>
+
+                        <input type="radio" class="btn-check" name="grupo" id="g-operador" value="Agente">
+                        <label class="btn btn-outline-secondary" for="g-operador">Operador</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    <!-- Toolbar de filtros: toggle del panel + resumen siempre visible -->
+    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap filtros-toolbar">
+        <button class="btn btn-sm filtros-toggle collapsed" type="button"
+                data-bs-toggle="collapse" data-bs-target="#panel-filtros"
+                aria-expanded="false" aria-controls="panel-filtros">
+            <i class="bi bi-sliders"></i> Filtros y segmentadores
+            <span class="badge filtros-count d-none" id="filtros-count">0</span>
+            <i class="bi bi-chevron-down chev"></i>
+        </button>
+        <button type="button" class="btn btn-link btn-sm p-0 d-none" id="seg-reset">
+            <i class="bi bi-x-circle"></i> Limpiar
+        </button>
+        <span id="segmentadores-resumen" class="small text-muted ms-1"></span>
+        <div class="d-flex align-items-center gap-2 ms-auto" id="perfil-bar-wrap">
+            <label class="small text-muted d-none d-md-inline" id="perfil-label">Dashboard:</label>
+            <select class="form-select form-select-sm" id="perfil-select" style="width:auto; min-width:11rem" title="Perfil de dashboard a ver"></select>
+            <button type="button" class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1 shadow-sm d-none" id="btn-abrir-asistente"
+                    title="Consultar al Analista IA sobre las auditorías cargadas (informes, diagnósticos, comparativas)">
+                <i class="bi bi-robot"></i> <span class="d-none d-sm-inline">Analista IA</span>
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="btn-descargar"
+                    title="Descargar un reporte interactivo (HTML) para compartir, ej. con un cliente">
+                <i class="bi bi-file-earmark-arrow-down"></i> Descargar reporte
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="btn-config-viz"
+                    title="Configurar los dashboards: qué se muestra, cómo se grafica y colorea cada atributo">
+                <i class="bi bi-gear"></i> Configurar
+            </button>
+        </div>
+    </div>
+
+    <!-- Panel de filtros colapsable (segmentadores + atributos a mostrar) -->
+    <div class="collapse mb-3" id="panel-filtros">
+        <div class="card card-body filtros-panel shadow-sm">
+            <div class="row g-4">
+                <div class="col-lg-7">
+                    <div class="filtros-sub-label"><i class="bi bi-funnel"></i> Segmentar (filtra todo el dashboard)</div>
+                    <div id="segmentadores" class="d-flex flex-wrap gap-2 mt-2"></div>
+                </div>
+                <div class="col-lg-5">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="filtros-sub-label">
+                            <i class="bi bi-eye"></i> Atributos a mostrar (<span id="attr-count">0</span>)
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-link btn-sm p-0" id="attr-all">Todos</button>
+                            <button type="button" class="btn btn-link btn-sm p-0" id="attr-none">Ninguno</button>
+                        </div>
+                    </div>
+                    <div id="attr-checks" class="attr-checks-grid mt-2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Resumen general (KPI cards) -->
+    <div class="row g-3 mb-3" id="kpi-cards">
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="card kpi-card kpi-total shadow-sm">
+                <div class="card-body">
+                    <div class="kpi-label">Auditorías totales</div>
+                    <div class="kpi-value" id="kpi-total">—</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="card kpi-card kpi-equipos shadow-sm">
+                <div class="card-body">
+                    <div class="kpi-label">Equipos</div>
+                    <div class="kpi-value" id="kpi-equipos">—</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="card kpi-card kpi-operadores shadow-sm">
+                <div class="card-body">
+                    <div class="kpi-label">Operadores</div>
+                    <div class="kpi-value" id="kpi-operadores">—</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="card kpi-card kpi-puntaje shadow-sm">
+                <div class="card-body">
+                    <div class="kpi-label">Puntaje promedio</div>
+                    <div class="kpi-value" id="kpi-puntaje">—</div>
+                    <div class="kpi-sub text-muted small" id="kpi-puntaje-sub"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="card kpi-card kpi-ec shadow-sm">
+                <div class="card-body">
+                    <div class="kpi-label">Llamados con EC</div>
+                    <div class="kpi-value" id="kpi-ec">—</div>
+                    <div class="kpi-sub text-muted small" id="kpi-ec-sub"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="card kpi-card kpi-atrs shadow-sm">
+                <div class="card-body">
+                    <div class="kpi-label">Atributos graficables</div>
+                    <div class="kpi-value" id="kpi-atrs">—</div>
+                    <div class="kpi-sub text-muted small" id="kpi-atrs-omitidos"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabs de vista -->
+    <div class="mb-3 d-flex align-items-center justify-content-between gap-2 flex-wrap">
+        <ul class="nav nav-pills vista-tabs-nav" id="vista-tabs">
+            <li class="nav-item">
+                <button type="button" class="nav-link active" data-vista="graficos">
+                    <i class="bi bi-bar-chart-line"></i> Gráficos
+                </button>
+            </li>
+            <li class="nav-item">
+                <button type="button" class="nav-link" data-vista="tablas">
+                    <i class="bi bi-table"></i> Tablas comparativas
+                </button>
+            </li>
+            <li class="nav-item">
+                <button type="button" class="nav-link" data-vista="tendencias">
+                    <i class="bi bi-graph-up-arrow"></i> Tendencias
+                </button>
+            </li>
+        </ul>
+
+        <!-- Muestra/oculta la categoría "Sin respuesta" en las tres vistas. Arranca
+             como lo dejó configurado el dashboard (⚙ Personalizar). -->
+        <button type="button" id="btn-sin-respuesta" class="btn btn-sm btn-outline-secondary d-none"
+                title="Muestra u oculta los llamados en los que el atributo quedó sin responder (típico de los atributos opcionales)">
+            <i class="bi bi-eye-slash"></i> <span id="btn-sin-respuesta-txt">Sin respuesta: oculta</span>
+        </button>
+    </div>
+
+    <!-- Barra de paginación compartida entre Gráficos y Tendencias -->
+    <div id="paginacion-bar" class="d-none paginacion-bar mb-3">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+            <span class="small text-muted me-2" id="paginacion-info">—</span>
+
+            <div class="btn-group btn-group-sm">
+                <button type="button" class="btn btn-outline-secondary" id="pag-primera" title="Primera">«</button>
+                <button type="button" class="btn btn-outline-secondary" id="pag-anterior" title="Anterior">‹</button>
+                <button type="button" class="btn btn-outline-secondary" id="pag-siguiente" title="Siguiente">›</button>
+                <button type="button" class="btn btn-outline-secondary" id="pag-ultima" title="Última">»</button>
+            </div>
+
+            <label class="form-label mb-0 small text-muted ms-2">Por página:</label>
+            <select id="pag-size" class="form-select form-select-sm" style="width: auto;">
+                <option value="6">6</option>
+                <option value="12" selected>12</option>
+                <option value="24">24</option>
+                <option value="48">48</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- ===== Vista: Gráficos ===== -->
+    <div id="vista-graficos">
+        <div id="atributos-container">
+            <div class="dashboard-empty">
+                Elegí Empresa, Campaña, Plantilla y rango de fechas, luego "Cargar dashboard".
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Vista: Tablas comparativas ===== -->
+    <div id="vista-tablas" class="d-none">
+        <div class="d-flex align-items-center gap-3 mb-3 flex-wrap tabla-controls-bar">
+            <div class="input-group input-group-sm" style="max-width: 280px;">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input type="text" id="tabla-buscar" class="form-control"
+                       placeholder="Buscar operador / equipo…">
+            </div>
+
+            <div class="d-flex align-items-center gap-2">
+                <label class="form-label mb-0 small text-muted">Modo:</label>
+                <div class="btn-group btn-group-sm" role="group" id="tabla-modo">
+                    <input type="radio" class="btn-check" name="tablamodo" id="tm-consolidado" value="consolidado" checked>
+                    <label class="btn btn-outline-secondary" for="tm-consolidado">Consolidado</label>
+                    <input type="radio" class="btn-check" name="tablamodo" id="tm-periodos" value="periodos">
+                    <label class="btn btn-outline-secondary" for="tm-periodos" title="Comparar ciclos cerrados / mes a mes">
+                        <i class="bi bi-calendar3-range"></i> Mes a Mes / Ciclos
+                    </label>
+                </div>
+            </div>
+
+            <!-- Controles para modo Consolidado -->
+            <div class="d-flex align-items-center gap-2" id="tabla-modo-consolidado-controls">
+                <label class="form-label mb-0 small text-muted">Ordenar valores por:</label>
+                <div class="btn-group btn-group-sm" role="group" id="tabla-orden">
+                    <input type="radio" class="btn-check" name="tablaorden" id="to-conteo" value="conteo" checked>
+                    <label class="btn btn-outline-secondary" for="to-conteo">N° total</label>
+                    <input type="radio" class="btn-check" name="tablaorden" id="to-pct" value="pct">
+                    <label class="btn btn-outline-secondary" for="to-pct">%</label>
+                </div>
+            </div>
+
+            <!-- Controles para modo Mes a Mes / Ciclos -->
+            <div class="d-flex align-items-center gap-2 d-none" id="tabla-modo-periodos-controls">
+                <label class="form-label mb-0 small text-muted">Granularidad:</label>
+                <div class="btn-group btn-group-sm" role="group" id="tabla-gran-group">
+                    <input type="radio" class="btn-check" name="tablagran" id="tg-mes" value="mes" checked>
+                    <label class="btn btn-outline-secondary" for="tg-mes">Mes</label>
+                    <input type="radio" class="btn-check" name="tablagran" id="tg-semana" value="semana">
+                    <label class="btn btn-outline-secondary" for="tg-semana">Semana</label>
+                    <input type="radio" class="btn-check" name="tablagran" id="tg-dia" value="dia">
+                    <label class="btn btn-outline-secondary" for="tg-dia">Día</label>
+                </div>
+                <span class="badge bg-light text-dark border small" id="tabla-periodos-badge"></span>
+            </div>
+        </div>
+        <div id="tablas-container">
+            <div class="dashboard-empty">Cargá el dashboard para ver las tablas comparativas.</div>
+        </div>
+    </div>
+
+    <!-- ===== Vista: Tendencias ===== -->
+    <div id="vista-tendencias" class="d-none">
+        <div class="d-flex align-items-center gap-3 mb-3 flex-wrap tendencia-controls">
+            <label class="form-label mb-0 small text-muted">Granularidad:</label>
+            <div class="btn-group btn-group-sm" role="group" id="gran-group">
+                <input type="radio" class="btn-check" name="gran" id="gran-auto" value="auto" checked>
+                <label class="btn btn-outline-secondary" for="gran-auto">Auto<span id="gran-auto-detalle"></span></label>
+                <input type="radio" class="btn-check" name="gran" id="gran-dia" value="dia">
+                <label class="btn btn-outline-secondary" for="gran-dia">Día</label>
+                <input type="radio" class="btn-check" name="gran" id="gran-semana" value="semana">
+                <label class="btn btn-outline-secondary" for="gran-semana">Semana</label>
+                <input type="radio" class="btn-check" name="gran" id="gran-mes" value="mes">
+                <label class="btn btn-outline-secondary" for="gran-mes">Mes</label>
+            </div>
+            <div class="btn-group btn-group-sm" role="group">
+                <input type="checkbox" class="btn-check" id="chk-mitades" autocomplete="off">
+                <label class="btn btn-outline-secondary" for="chk-mitades"
+                       title="Muestra en el gráfico el método &quot;1ª vs 2ª mitad&quot;: una línea al medio y el promedio de cada mitad.">
+                    <i class="bi bi-distribute-horizontal"></i> Comparar mitades
+                </label>
+            </div>
+            <span class="small text-muted">
+                <i class="bi bi-info-circle"></i>
+                Cada operador tiene su línea vs el promedio general (punteada). Al pie, dos medidas de
+                tendencia: <strong>Principio a fin</strong> (primer período con datos vs. el último —los
+                extremos de la línea) y <strong>1ª vs 2ª mitad</strong> (promedio de cada mitad del
+                período). Verde = mejoró; usá <i class="bi bi-arrow-down-up"></i> para invertir la
+                polaridad. Enum: una línea por cada valor con su % en el tiempo.
+            </span>
+        </div>
+        <div id="tendencias-container">
+            <div class="dashboard-empty">Cargá el dashboard para ver las tendencias.</div>
+        </div>
+    </div>
+</div>
+
+<!-- Template: sección por atributo -->
+<template id="tpl-atributo-section">
+    <div class="card mb-3 shadow-sm atributo-section">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <strong class="atributo-nombre"></strong>
+                <span class="badge bg-light text-dark atributo-tipo ms-1"></span>
+            </div>
+            <small class="text-muted atributo-stats"></small>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 small-multiples"></div>
+        </div>
+    </div>
+</template>
+
+<!-- Template: una mini-card chart -->
+<template id="tpl-mini-chart">
+    <div class="col-12 col-md-6 col-lg-4 col-xl-3">
+        <div class="mini-chart-card">
+            <div class="mini-chart-header">
+                <div class="mini-chart-title" title=""></div>
+                <span class="badge mini-chart-casos"></span>
+            </div>
+            <div class="mini-chart-canvas-wrap">
+                <canvas></canvas>
+            </div>
+            <div class="mini-chart-footer text-muted small"></div>
+        </div>
+    </div>
+</template>
+
+<!-- Template: sección de tabla por atributo -->
+<template id="tpl-tabla-section">
+    <div class="card mb-3 shadow-sm tabla-section">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <strong class="atributo-nombre"></strong>
+                <span class="badge bg-light text-dark atributo-tipo ms-1"></span>
+            </div>
+            <small class="text-muted atributo-stats"></small>
+        </div>
+        <div class="card-body p-0">
+            <div class="tabla-scroll">
+                <table class="table table-sm table-hover align-middle mb-0 tabla-atributo">
+                    <thead></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- Modal: configuración de visualización por atributo (solo con bandeja.config) -->
+<div class="modal fade" id="modal-viz-config" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-gear"></i> Configuración de visualización</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body viz-cfg-modal">
+                <!-- Barra de perfiles (varios dashboards por plantilla) -->
+                <div class="viz-cfg-perfiles mb-3">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <span class="small text-muted">Editando:</span>
+                        <select class="form-select form-select-sm" id="perfil-edit-select" style="width:auto; min-width:12rem"></select>
+                        <span class="badge bg-success d-none" id="perfil-default-badge" title="Es el que se abre por defecto">default</span>
+                        <div class="btn-group btn-group-sm ms-auto" role="group">
+                            <button type="button" class="btn btn-outline-secondary" id="perfil-nuevo"><i class="bi bi-plus-lg"></i> Nuevo</button>
+                            <button type="button" class="btn btn-outline-secondary" id="perfil-duplicar"><i class="bi bi-files"></i> Duplicar</button>
+                            <button type="button" class="btn btn-outline-secondary" id="perfil-renombrar"><i class="bi bi-pencil"></i> Renombrar</button>
+                            <button type="button" class="btn btn-outline-secondary" id="perfil-default"><i class="bi bi-star"></i> Hacer default</button>
+                            <button type="button" class="btn btn-outline-danger" id="perfil-borrar"><i class="bi bi-trash"></i> Borrar</button>
+                        </div>
+                    </div>
+                    <div class="small text-muted mt-1" id="perfil-meta"></div>
+                </div>
+                <!-- Panel a nivel dashboard: KPIs, preview, export/import -->
+                <div class="viz-cfg-nivel mb-3">
+                    <div class="d-flex align-items-center gap-3 flex-wrap">
+                        <span class="viz-cfg-lbl mb-0">Tarjetas KPI:</span>
+                        <div class="viz-cfg-metricas" id="viz-config-kpis"></div>
+                        <div class="form-check form-switch ms-auto mb-0">
+                            <input class="form-check-input" type="checkbox" id="viz-config-preview">
+                            <label class="form-check-label small" for="viz-config-preview">Vista previa en vivo</label>
+                        </div>
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-secondary" id="viz-config-exportar"><i class="bi bi-download"></i> Exportar</button>
+                            <button type="button" class="btn btn-outline-secondary" id="viz-config-importar"><i class="bi bi-upload"></i> Importar</button>
+                        </div>
+                        <input type="file" id="viz-config-file" accept="application/json,.json" class="d-none">
+                    </div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap mt-2">
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" id="viz-config-sin-respuesta">
+                            <label class="form-check-label small" for="viz-config-sin-respuesta">
+                                Mostrar <strong>“Sin respuesta”</strong> en gráficos y tablas
+                            </label>
+                        </div>
+                        <span class="viz-cfg-hint mb-0">
+                            Es la porción de llamados donde el atributo quedó sin responder (típico de los
+                            <em>opcionales</em>). Define cómo abre el dashboard; el lector puede alternarlo
+                            con el botón de la barra, y cada atributo puede tener su excepción.
+                        </span>
+                    </div>
+                </div>
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-3 flex-wrap">
+                    <p class="text-muted small mb-0 viz-cfg-intro">
+                        Cada <strong>dashboard</strong> es una vista de esta plantilla (ej: Cliente, Operaciones).
+                        Definí acá qué se muestra y cómo. Usá ▲▼ para ordenar y "Sección" para agrupar.
+                    </p>
+                    <div class="d-flex gap-2">
+                        <input type="search" class="form-control form-control-sm viz-cfg-buscar"
+                               id="viz-config-buscar" placeholder="Buscar atributo…" style="width:12rem">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="viz-config-expandir">
+                            Expandir todo
+                        </button>
+                    </div>
+                </div>
+                <datalist id="viz-secciones-list"></datalist>
+                <div id="viz-config-body" class="viz-cfg-list"></div>
+                <div id="viz-config-error" class="text-danger small mt-2 d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <span id="viz-config-estado" class="small text-muted me-auto"></span>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btn-guardar-config">
+                    <i class="bi bi-save"></i> Guardar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Botón flotante de acceso rápido al Analista IA -->
+<button type="button" id="btn-dash-asistente-float" class="btn-dash-asistente-float d-none"
+        title="Consultar al Analista IA de Auditorías">
+    <div class="dash-asistente-float-inner">
+        <i class="bi bi-robot"></i>
+        <span class="dash-asistente-float-pulse"></span>
+    </div>
+</button>
+
+<!-- Offcanvas Drawer: Analista de Auditorías (Chatbot IA) -->
+<div class="offcanvas offcanvas-end dash-asistente-drawer" tabindex="-1" id="dash-asistente-drawer"
+     aria-labelledby="dash-asistente-drawer-title" data-bs-scroll="true" data-bs-backdrop="false">
+    <div class="offcanvas-header border-bottom py-2 px-3">
+        <div class="d-flex align-items-center gap-2 dash-asistente-header-info">
+            <div class="dash-asistente-header-icon">
+                <i class="bi bi-robot"></i>
+            </div>
+            <div class="dash-asistente-header-textos">
+                <h6 class="offcanvas-title mb-0 fw-bold d-flex align-items-center gap-2" id="dash-asistente-drawer-title">
+                    <span class="text-truncate">Analista de Auditorías</span>
+                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle small fw-normal" id="dash-asistente-badge-auditorias">0 auditorías</span>
+                </h6>
+                <small class="text-muted d-block text-truncate" id="dash-asistente-drawer-subtitulo">
+                    Consultoría operativa, diagnósticos y reportes para líderes
+                </small>
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-1 dash-asistente-header-acciones">
+            <button type="button" class="btn btn-sm btn-outline-secondary btn-dash-asistente-header" id="btn-dash-asistente-historial" title="Historial de conversaciones">
+                <i class="bi bi-clock-history"></i>
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary btn-dash-asistente-header" id="btn-dash-asistente-nuevo" title="Nueva conversación">
+                <i class="bi bi-plus-lg"></i>
+            </button>
+            <div class="dropdown">
+                <button type="button" class="btn btn-sm btn-outline-secondary btn-dash-asistente-header" id="btn-dash-asistente-exportar"
+                        data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" title="Exportar la conversación completa" disabled>
+                    <i class="bi bi-box-arrow-up"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                    <li><h6 class="dropdown-header">Exportar la conversación completa</h6></li>
+                    <li><button class="dropdown-item small" type="button" data-exportar="correo"><i class="bi bi-envelope-paper me-2"></i>Copiar para Correo / Word</button></li>
+                    <li><button class="dropdown-item small" type="button" data-exportar="markdown"><i class="bi bi-markdown me-2"></i>Copiar Markdown</button></li>
+                    <li><button class="dropdown-item small" type="button" data-exportar="descargar"><i class="bi bi-download me-2"></i>Descargar (.md)</button></li>
+                    <li><button class="dropdown-item small" type="button" data-exportar="imprimir"><i class="bi bi-printer me-2"></i>Imprimir / PDF</button></li>
+                </ul>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary btn-dash-asistente-header" id="btn-dash-asistente-expandir" title="Alternar pantalla completa (100% ancho)">
+                <i class="bi bi-arrows-angle-expand" id="icon-dash-asistente-expandir"></i>
+            </button>
+            <button type="button" class="btn-close text-reset ms-1" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+        </div>
+    </div>
+
+    <div class="offcanvas-body d-flex flex-column p-0 position-relative">
+        <!-- Panel lateral: historial de conversaciones (se superpone al chat) -->
+        <div class="dash-asistente-historial d-none" id="dash-asistente-panel-historial">
+            <div class="dash-asistente-historial-head">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <span class="fw-semibold small text-uppercase text-muted">Tus conversaciones</span>
+                    <button type="button" class="btn-close btn-sm" id="btn-dash-asistente-historial-cerrar" aria-label="Cerrar historial"></button>
+                </div>
+                <div class="input-group input-group-sm mb-2">
+                    <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                    <input type="search" class="form-control" id="dash-asistente-buscar"
+                           placeholder="Buscar por título o por lo que preguntaste…" autocomplete="off">
+                </div>
+                <button type="button" class="btn btn-sm btn-primary w-100" id="btn-dash-asistente-nuevo-panel">
+                    <i class="bi bi-plus-lg"></i> Nueva conversación
+                </button>
+            </div>
+            <div class="dash-asistente-historial-lista" id="dash-asistente-historial-lista">
+                <div class="dash-asistente-historial-vacio">Cargando…</div>
+            </div>
+        </div>
+
+        <!-- Alcance del chat abierto: sobre qué datos se conversó -->
+        <div class="dash-asistente-alcance d-none" id="dash-asistente-alcance"></div>
+
+        <!-- Contenedor de mensajes y conversación -->
+        <div class="dash-asistente-chat-body flex-grow-1 p-3" id="dash-asistente-chat-mensajes" role="log" aria-live="polite">
+            <!-- Estado inicial / Sugerencias rápidas -->
+            <div class="dash-asistente-bienvenida" id="dash-asistente-bienvenida">
+                <div class="text-center my-3">
+                    <div class="dash-asistente-avatar-big mb-2">
+                        <i class="bi bi-robot"></i>
+                    </div>
+                    <h6 class="fw-bold mb-1">¿Qué necesitás analizar hoy?</h6>
+                    <p class="text-muted small px-3">
+                        Consultoría analítica para supervisores, jefes y gerencia: informes ejecutivos, análisis de desvíos, causas raíz de errores críticos y planes de coaching basados en datos.
+                    </p>
+                </div>
+
+                <div class="dash-asistente-chips-section mt-2">
+                    <div class="small fw-semibold text-muted mb-2 text-uppercase tracking-wider">Consultas e informes de gestión:</div>
+                    <div class="dash-asistente-chips-grid">
+                        <button type="button" class="dash-asistente-chip-card" data-prompt="Generá un resumen ejecutivo completo de las auditorías de este período, destacando los principales hallazgos, fortalezas, fallas recurrentes y conclusiones para la gerencia.">
+                            <div class="chip-card-icon text-primary"><i class="bi bi-file-earmark-text"></i></div>
+                            <div class="chip-card-content">
+                                <div class="chip-card-title">Resumen Ejecutivo</div>
+                                <div class="chip-card-sub">Informe general con KPIs, fortalezas y desvíos clave</div>
+                            </div>
+                        </button>
+
+                        <button type="button" class="dash-asistente-chip-card" data-prompt="Analizá en detalle los casos con Error Crítico (EC): qué operadores los tuvieron, qué criterios fallaron y cuáles fueron las principales causas raíz.">
+                            <div class="chip-card-icon text-danger"><i class="bi bi-exclamation-triangle"></i></div>
+                            <div class="chip-card-content">
+                                <div class="chip-card-title">Análisis de Errores Críticos</div>
+                                <div class="chip-card-sub">Detalle de llamadas críticas y causas raíz</div>
+                            </div>
+                        </button>
+
+                        <button type="button" class="dash-asistente-chip-card" data-prompt="Compará el desempeño de los operadores y equipos: identificá referentes (top desempeño), operadores con desvíos y disparidad entre equipos.">
+                            <div class="chip-card-icon text-success"><i class="bi bi-people"></i></div>
+                            <div class="chip-card-content">
+                                <div class="chip-card-title">Ranking y Benchmarking</div>
+                                <div class="chip-card-sub">Comparativa entre equipos y dispersión de operadores</div>
+                            </div>
+                        </button>
+
+                        <button type="button" class="dash-asistente-chip-card" data-prompt="Armá un plan de coaching y recomendaciones prácticas para los supervisores sobre los 3 atributos con menor cumplimiento en esta plantilla.">
+                            <div class="chip-card-icon text-warning"><i class="bi bi-lightbulb"></i></div>
+                            <div class="chip-card-content">
+                                <div class="chip-card-title">Plan de Coaching y Acciones</div>
+                                <div class="chip-card-sub">Acciones concretas priorizadas para supervisores</div>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Indicador de estado / Contexto analizado -->
+        <div class="dash-asistente-context-bar px-3 py-1 bg-light border-top border-bottom small text-muted d-flex align-items-center justify-content-between">
+            <span class="text-truncate" id="dash-asistente-context-texto">
+                <i class="bi bi-database me-1"></i> Esperando carga de auditorías...
+            </span>
+            <span class="badge bg-secondary-subtle text-secondary border small ms-2 text-nowrap" id="dash-asistente-modelo-tag">Gemini 3.8 Flash · High Reasoning</span>
+        </div>
+
+        <!-- Formulario de entrada -->
+        <form class="dash-asistente-input-area p-3 bg-white" id="dash-asistente-form">
+            <div class="input-group">
+                <textarea class="form-control dash-asistente-textarea" id="dash-asistente-input" rows="1"
+                          placeholder="Hacé una pregunta sobre las auditorías o pedí un informe..."
+                          maxlength="3000" autocomplete="off"></textarea>
+                <button class="btn btn-primary px-3 dash-asistente-btn-enviar" type="submit" id="dash-asistente-btn-enviar" title="Enviar consulta">
+                    <i class="bi bi-send-fill" id="dash-asistente-icon-enviar"></i>
+                    <span class="spinner-border spinner-border-sm d-none" id="dash-asistente-spinner" role="status" aria-hidden="true"></span>
+                </button>
+            </div>
+            <div class="d-flex justify-content-between align-items-center mt-1">
+                <small class="text-muted text-xs">Presioná <kbd>Enter</kbd> para enviar, <kbd>Shift + Enter</kbd> para nueva línea</small>
+                <button type="button" class="btn btn-link btn-xs text-danger text-decoration-none p-0 d-none" id="dash-asistente-btn-cancelar">
+                    <i class="bi bi-stop-circle"></i> Cancelar
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<style>
+    .viz-cfg-list { display: flex; flex-direction: column; gap: .5rem; }
+    .viz-cfg-card { border: 1px solid var(--bs-border-color, #dee2e6); border-radius: .5rem; overflow: hidden; background: var(--bs-body-bg, #fff); }
+    .viz-cfg-card.oculto-attr { opacity: .6; }
+    .viz-cfg-head { display: flex; align-items: center; gap: .6rem; padding: .55rem .75rem; cursor: pointer; user-select: none; }
+    .viz-cfg-head:hover { background: rgba(13,110,253,.05); }
+    .viz-cfg-head .chev { margin-left: auto; transition: transform .15s ease; color: #6c757d; }
+    .viz-cfg-card.open .viz-cfg-head .chev { transform: rotate(90deg); }
+    .viz-cfg-nombre { font-weight: 600; }
+    .viz-cfg-tipo { font-size: .72rem; padding: .1rem .45rem; border-radius: 1rem; background: #eef1f4; color: #495057; white-space: nowrap; }
+    .viz-cfg-visible-wrap { display: inline-flex; align-items: center; gap: .3rem; }
+    .viz-cfg-body { padding: .25rem .9rem .85rem; border-top: 1px dashed var(--bs-border-color, #e3e6ea); display: none; }
+    .viz-cfg-card.open .viz-cfg-body { display: block; }
+    .viz-cfg-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; padding: .5rem 0; }
+    .viz-cfg-row + .viz-cfg-row { border-top: 1px solid rgba(0,0,0,.04); }
+    .viz-cfg-lbl { font-size: .8rem; color: #495057; min-width: 8.5rem; font-weight: 500; }
+    .viz-cfg-hint { font-size: .72rem; color: #8a9199; width: 100%; margin-top: -.15rem; }
+    .viz-cfg-pol .btn { --bs-btn-padding-y: .15rem; --bs-btn-padding-x: .5rem; font-size: .78rem; }
+    .viz-cfg-valores { display: flex; flex-direction: column; gap: .3rem; width: 100%; }
+    .viz-cfg-valor { display: flex; align-items: center; gap: .5rem; font-size: .82rem; padding: .15rem .3rem; border-radius: .35rem; }
+    .viz-cfg-valor:hover { background: rgba(0,0,0,.03); }
+    .viz-cfg-valor input[type=color] { width: 2rem; height: 1.4rem; padding: 0; border: 1px solid #ced4da; border-radius: .25rem; background: none; cursor: pointer; }
+    .viz-cfg-valor .val-nombre { flex: 1; }
+    .viz-cfg-valor.val-oculto .val-nombre { text-decoration: line-through; color: #adb5bd; }
+    .viz-cfg-metricas { display: flex; flex-wrap: wrap; gap: .3rem .9rem; }
+    .viz-cfg-chk { display: inline-flex; align-items: center; gap: .3rem; font-size: .82rem; margin: 0; cursor: pointer; }
+    .viz-cfg-empty { color: #8a9199; font-size: .85rem; padding: 1rem; text-align: center; }
+    .viz-cfg-nivel { background: rgba(13,110,253,.04); border: 1px solid var(--bs-border-color, #e3e6ea); border-radius: .5rem; padding: .6rem .8rem; }
+    .viz-cfg-head-btns { display: inline-flex; gap: .15rem; margin-left: .3rem; }
+    .viz-cfg-head-btns .btn { --bs-btn-padding-y: 0; --bs-btn-padding-x: .3rem; font-size: .75rem; line-height: 1.3; }
+    .viz-cfg-valor .val-alias { width: 8rem; }
+    .viz-cfg-valor .val-grupo { width: 7rem; }
+    .viz-cfg-valor .val-mover { display: inline-flex; flex-direction: column; line-height: .6; }
+    .viz-cfg-valor .val-mover button { border: none; background: none; cursor: pointer; color: #adb5bd; font-size: .7rem; padding: 0; }
+    .viz-cfg-valor .val-mover button:hover { color: #0d6efd; }
+    /* Cabecera de sección en las tres vistas del dashboard */
+    .viz-seccion-header {
+        font-weight: 600; font-size: .95rem; color: #0d6efd;
+        border-bottom: 2px solid rgba(13,110,253,.25);
+        padding: .3rem 0 .25rem; margin: .6rem 0 .1rem; width: 100%;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/es.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/wordcloud@1.2.2/src/wordcloud2.js"></script>
+    <script src="{{ url_for('static', filename='js/bandeja.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,366 @@
+{% extends "layout.html" %}
+
+{% block title %}Evaluación de la IA{% endblock %}
+
+{% block styles %}
+    {{ super() }}
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/auditorias_realizadas.css') }}">
+    <style>
+        /* Tarjetas de indicador. La métrica principal es el kappa, no el acierto:
+           el color y el tamaño lo reflejan. */
+        .metric-card {
+            border: 1px solid var(--bs-border-color);
+            border-radius: .5rem;
+            padding: 1rem;
+            height: 100%;
+            background: var(--bs-body-bg);
+        }
+        .metric-card .metric-value { font-size: 1.9rem; font-weight: 700; line-height: 1.1; }
+        .metric-card .metric-label { font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; color: var(--bs-secondary-color); }
+        .metric-card .metric-hint  { font-size: .78rem; color: var(--bs-secondary-color); }
+        .metric-card.destacada { border-width: 2px; border-color: var(--bs-primary); }
+
+        /* Barra de acierto dentro de la tabla por atributo. */
+        .barra-kappa { height: 6px; border-radius: 3px; background: var(--bs-secondary-bg); overflow: hidden; }
+        .barra-kappa > span { display: block; height: 100%; }
+
+        table.tabla-atributos td, table.tabla-atributos th { vertical-align: middle; }
+        .celda-num { text-align: right; font-variant-numeric: tabular-nums; }
+        .confusion-tabla td, .confusion-tabla th { font-size: .8rem; padding: .25rem .5rem; text-align: center; }
+        .confusion-diag { background: rgba(25, 135, 84, .12); font-weight: 600; }
+        .confusion-error { background: rgba(220, 53, 69, .10); }
+    </style>
+{% endblock %}
+
+{% block page_container %}container-wide{% endblock %}
+
+{% block content %}
+{% set puede_administrar = session.get('is_super_admin') or 'goldenset:manage' in session.get('permissions', []) %}
+<div id="evaluacion-container" data-api-token="{{ api_token }}"
+     data-puede-administrar="{{ '1' if puede_administrar else '0' }}">
+
+    <div class="audit-hero d-flex align-items-center">
+        <div class="hero-icon"><i class="bi bi-bullseye"></i></div>
+        <div>
+            <h1>Evaluación de la IA</h1>
+            <p>Cuánto le acierta cada plantilla a un auditor humano, atributo por atributo.</p>
+        </div>
+    </div>
+
+    <div id="eval-error" class="alert alert-danger" style="display: none;"></div>
+
+    {# === Filtros === #}
+    <div class="card">
+        <div class="card-body">
+            <div class="row g-2">
+                <div class="col-md-3">
+                    <label for="empresaSelect" class="form-label">Empresa</label>
+                    <select class="form-select" id="empresaSelect">
+                        <option></option>
+                        {% for id, nombre in empresas_data.items() %}
+                        <option value="{{ id }}">{{ nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="campanaSelect" class="form-label">Campaña</label>
+                    <select class="form-select" id="campanaSelect" disabled><option></option></select>
+                </div>
+                <div class="col-md-3">
+                    <label for="plantillaSelect" class="form-label">Plantilla</label>
+                    <select class="form-select" id="plantillaSelect" disabled><option></option></select>
+                </div>
+                <div class="col-md-3">
+                    <label for="setSelect" class="form-label">
+                        Golden Set
+                        <i class="bi bi-question-circle text-muted"
+                           title="Sin set se evalúan TODAS las revisiones de la plantilla. Un set es una muestra congelada, comparable entre corridas."></i>
+                    </label>
+                    <select class="form-select" id="setSelect">
+                        <option value="">Todas las revisiones</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="d-flex flex-wrap align-items-center gap-3 mt-3">
+                <div class="btn-group btn-group-sm" role="group" id="split-group" style="display: none;">
+                    <input type="radio" class="btn-check" name="split" id="split-todos" value="" checked>
+                    <label class="btn btn-outline-secondary" for="split-todos">Todo el set</label>
+                    <input type="radio" class="btn-check" name="split" id="split-train" value="train">
+                    <label class="btn btn-outline-secondary" for="split-train">train</label>
+                    <input type="radio" class="btn-check" name="split" id="split-test" value="test">
+                    <label class="btn btn-outline-secondary" for="split-test">test</label>
+                </div>
+
+                <button type="button" class="btn btn-primary btn-sm" id="btn-evaluar" disabled>
+                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true" style="display: none;"></span>
+                    <i class="bi bi-calculator me-1"></i>Evaluar
+                </button>
+
+                {% if puede_administrar %}
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-abrir-sets" disabled>
+                    <i class="bi bi-collection me-1"></i>Administrar Golden Sets
+                </button>
+                {% endif %}
+
+                <span class="text-muted small ms-auto">
+                    <i class="bi bi-lightning-charge me-1"></i>No consume tokens: sale todo de la base.
+                </span>
+            </div>
+        </div>
+    </div>
+
+    {# === Resultados === #}
+    <div id="eval-resultados" style="display: none;">
+
+        <div id="eval-avisos" class="mt-3"></div>
+
+        {# Indicadores principales #}
+        <div class="row g-2 mt-1" id="eval-metricas"></div>
+
+        {# Por atributo #}
+        <div class="card mt-3">
+            <div class="card-header bg-white">
+                <h5 class="mb-0 text-primary"><i class="bi bi-list-check me-2"></i>Por atributo</h5>
+                <small class="text-muted">
+                    Ordenado de peor a mejor kappa: lo primero de la lista es lo que hay que arreglar.
+                </small>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover tabla-atributos align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Atributo</th>
+                                <th class="celda-num">Casos</th>
+                                <th class="celda-num">Acierto</th>
+                                <th style="width: 150px;">Kappa</th>
+                                <th class="celda-num" title="Falsos Error Crítico: la IA reprobó a quien el humano no reprobó">Falsos EC</th>
+                                <th class="celda-num" title="Errores críticos reales que la IA dejó pasar">EC omitidos</th>
+                                <th class="celda-num" title="La IA no evaluó donde el humano sí pudo: respondió N/A (Calidad ponderada) o dejó el atributo sin responder (atributo opcional). Es el mismo error escrito de dos formas.">Sin responder</th>
+                                <th style="width: 40px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-atributos-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        {# Por versión de plantilla #}
+        <div class="card mt-3" id="card-por-version" style="display: none;">
+            <div class="card-header bg-white">
+                <h5 class="mb-0 text-primary"><i class="bi bi-diagram-3 me-2"></i>Por versión de la plantilla</h5>
+                <small class="text-muted">
+                    Misma verdad humana, distintos prompts. Es la comparación A/B sin re-auditar nada.
+                </small>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Versión</th>
+                                <th class="celda-num">Llamados</th>
+                                <th class="celda-num">Acierto</th>
+                                <th class="celda-num">Kappa</th>
+                                <th class="celda-num">MAE puntaje</th>
+                                <th class="celda-num">Falsos EC</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-version-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="eval-placeholder" class="text-center text-muted p-5">
+        <i class="bi bi-bullseye" style="font-size: 2.5rem; opacity: .3;"></i>
+        <p class="mt-3 mb-0">Elegí una plantilla y tocá <strong>Evaluar</strong>.</p>
+        <p class="small">
+            Las métricas salen de las revisiones humanas cargadas desde
+            <em>Auditorías Realizadas</em>. Si todavía no revisaste nada, no hay nada que medir.
+        </p>
+    </div>
+</div>
+
+{# === Modal: matriz de confusión de un atributo === #}
+<div class="modal fade" id="modal-confusion" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-light">
+                <h5 class="modal-title" id="confusion-titulo"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body" id="confusion-cuerpo"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# === Modal: administración de Golden Sets === #}
+<div class="modal fade" id="modal-sets" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-light">
+                <h5 class="modal-title"><i class="bi bi-collection me-2"></i>Golden Sets de la plantilla</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div id="sets-error" class="alert alert-danger" style="display: none;"></div>
+
+                <div class="d-flex gap-2 align-items-end mb-3">
+                    <div class="flex-grow-1">
+                        <label for="nuevo-set-nombre" class="form-label small fw-bold">Crear un set nuevo</label>
+                        <input type="text" class="form-control form-control-sm" id="nuevo-set-nombre"
+                               placeholder="Ej.: Cobranzas — referencia 2026-Q3">
+                    </div>
+                    <button type="button" class="btn btn-sm btn-success" id="btn-crear-set">
+                        <i class="bi bi-plus-lg me-1"></i>Crear
+                    </button>
+                </div>
+
+                <div class="table-responsive mb-4">
+                    <table class="table table-sm align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Set</th>
+                                <th class="celda-num">Llamados</th>
+                                <th class="celda-num">train / test</th>
+                                <th style="width: 200px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="sets-tbody"></tbody>
+                    </table>
+                </div>
+
+                <div id="sets-detalle" style="display: none;">
+                    <h6 class="fw-bold" id="sets-detalle-titulo"></h6>
+
+                    <ul class="nav nav-tabs" role="tablist">
+                        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab"
+                            data-bs-target="#tab-items" type="button">Llamados del set</button></li>
+                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+                            data-bs-target="#tab-candidatas" type="button">Sumar llamados</button></li>
+                    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+                            data-bs-target="#tab-cobertura" type="button">Cobertura por atributo</button></li>
+                    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+                            data-bs-target="#tab-reauditar" type="button">Para reauditar</button></li>
+                    </ul>
+
+                    <div class="tab-content pt-3">
+                        <div class="tab-pane fade show active" id="tab-items">
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Interacción</th>
+                                            <th>Operador</th>
+                                            <th>Fecha</th>
+                                            <th class="celda-num">Puntaje IA</th>
+                                            <th>Split</th>
+                                            <th>Estado</th>
+                                            <th style="width: 50px;"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="items-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-candidatas">
+                            <p class="small text-muted">
+                                Los llamados se eligen por <strong>cobertura de atributos</strong>, no por
+                                resultado del llamado. Estratificar en &laquo;con Error Crítico / con fallas /
+                                limpias&raquo; no alcanza: un llamado con fallas puede fallar siempre en el mismo
+                                atributo y dejar al resto sin poder medirse. Acá se busca llenar las celdas
+                                (atributo &times; valor) que hoy están flojas, con la menor cantidad de escuchas
+                                posible. Al sumarlos se fijan sus audios para que el descarte automático no los borre.
+                            </p>
+                            <div class="d-flex gap-2 align-items-center mb-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary" id="btn-buscar-candidatas">
+                                    <i class="bi bi-shuffle me-1"></i>Proponer llamados
+                                </button>
+                                <select id="candidatas-cantidad" class="form-select form-select-sm" style="width: auto;">
+                                    <option value="12">12 llamados</option>
+                                    <option value="21" selected>21 llamados</option>
+                                    <option value="30">30 llamados</option>
+                                    <option value="60">60 llamados</option>
+                                </select>
+                                <button type="button" class="btn btn-sm btn-success" id="btn-sumar-candidatas" disabled>
+                                    <i class="bi bi-plus-circle me-1"></i>Sumar las seleccionadas
+                                </button>
+                            </div>
+                            <div class="form-check form-check-inline small mb-2">
+                                <input class="form-check-input" type="checkbox" id="candidatas-solo-audio" checked>
+                                <label class="form-check-label" for="candidatas-solo-audio">
+                                    Solo llamados con audio conservado
+                                    <i class="bi bi-question-circle text-muted"
+                                       title="La propuesta no tiene límite de fecha: sortea sobre toda la historia de la plantilla. Lo que en la práctica la empuja hacia lo reciente es esta opción, porque el audio se va borrando por falta de espacio. Destildala para llegar más atrás y revisar contra la transcripción, que sí se conserva siempre."></i>
+                                </label>
+                            </div>
+                            <div id="candidatas-aporte" class="alert alert-info py-2 small" style="display:none;"></div>
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th style="width: 34px;"></th>
+                                            <th>Grupo</th>
+                                            <th>Interacción</th>
+                                            <th>Operador</th>
+                                            <th>Fecha</th>
+                                            <th class="celda-num">Puntaje IA</th>
+                                            <th>Qué aporta</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="candidatas-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-cobertura">
+                            <p class="small text-muted">
+                                Cuántos llamados revisados hay de <strong>cada valor de cada atributo</strong>.
+                                Es la pregunta que decide si el prompt se puede corregir: un atributo con 40
+                                revisiones <em>todas en OK</em> parece cubierto y en realidad no se puede medir,
+                                porque nunca vimos a la IA frente a un caso donde el criterio falla.
+                            </p>
+                            <div id="cobertura-attr-cuerpo">
+                                <p class="small text-muted">Elegí una plantilla y abrí esta pestaña.</p>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-reauditar">
+                            <p class="small text-muted">
+                                Llamados que ya tienen veredicto humano pero cuya respuesta de la IA salió de una
+                                <strong>versión anterior del prompt</strong>. La revisión sigue valiendo; lo que
+                                quedó viejo es la corrida de la IA. Medir el prompt nuevo contra esas respuestas
+                                da un resultado falso: el cambio no aparece por ningún lado. Como el audio del set
+                                está fijado, alcanza con volver a auditarlos.
+                            </p>
+                            <div id="reauditar-cuerpo">
+                                <p class="small text-muted">Elegí una plantilla y abrí esta pestaña.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="{{ url_for('static', filename='js/evaluacion.js') }}"></script>
+{% endblock %}

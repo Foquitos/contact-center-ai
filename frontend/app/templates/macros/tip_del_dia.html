@@ -1,0 +1,207 @@
+{# Macro reutilizable para renderizar el Tip del Día en cualquier pantalla (Inicio, Chatbot, etc.) #}
+{% macro render_tip(tip, id="home-tip-container", compacto=false) %}
+{% if tip and tip.tips %}
+{% set alert_class = 'alert-warning' if tip.tipo == 'warning' else ('alert-success' if tip.tipo == 'success' else 'alert-info') %}
+{% set icon_class = 'bi-exclamation-triangle-fill text-warning' if tip.tipo == 'warning' else ('bi-stars text-success' if tip.tipo == 'success' else 'bi-lightbulb-fill text-info') %}
+{% set tipo_label = 'Alerta Operativa' if tip.tipo == 'warning' else ('Novedad' if tip.tipo == 'success' else 'Tip del día') %}
+
+<div class="alert {{ alert_class }} fade show d-flex align-items-start {{ 'py-2 px-3 mb-3' if compacto else 'p-3 mb-4' }} shadow-sm tip-del-dia-box"
+     role="alert" id="{{ id }}" data-tipo="{{ tip.tipo or 'info' }}" data-tip-id="{{ tip.id }}">
+    <div class="tip-icon me-2 mt-1 fs-5">
+        <i class="bi {{ icon_class }}"></i>
+    </div>
+    <div class="flex-grow-1">
+        <div class="d-flex align-items-center flex-wrap gap-2 mb-1">
+            <span class="badge bg-danger text-white tip-prio-badge" style="{{ 'display: inline-block;' if tip.es_prioritario else 'display: none;' }}">
+                <i class="bi bi-pin-angle-fill me-1"></i>Prioritario
+            </span>
+            <strong class="tip-tipo-label fw-bold">{{ tipo_label }}{% if tip.title %}: <span class="tip-title-text">{{ tip.title }}</span>{% endif %}</strong>
+            {% if tip.group_name %}
+            <span class="badge bg-light text-dark border tip-group-badge" style="font-size: 0.75rem;">{{ tip.group_name }}</span>
+            {% endif %}
+
+            <div class="ms-auto d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 btn-feedback-tip {{ 'text-primary fw-bold' if tip.user_voted else 'text-muted' }}"
+                        title="Indicar que este tip te fue de utilidad" onclick="darFeedbackTip('{{ id }}')">
+                    <i class="bi {{ 'bi-hand-thumbs-up-fill' if tip.user_voted else 'bi-hand-thumbs-up' }}"></i>
+                    <span class="small feedback-text">{{ '¡Me sirvió!' if tip.user_voted else 'Me sirvió' }}</span>
+                    <span class="badge bg-white text-dark border feedback-count-badge" style="font-size: 0.7rem; {{ 'display: inline-block;' if tip.likes_count and tip.likes_count > 0 else 'display: none;' }}">
+                        {{ tip.likes_count or 0 }}
+                    </span>
+                </button>
+
+                <button type="button" class="btn btn-link btn-sm text-decoration-none text-muted p-0 btn-next-tip"
+                        title="Ver otro consejo disponible para tu puesto" onclick="rotarTip('{{ id }}')">
+                    <i class="bi bi-arrow-clockwise"></i> <span class="small">Ver otro</span>
+                </button>
+
+                <button type="button" class="btn-close ms-1" data-bs-dismiss="alert" aria-label="Cerrar"
+                        title="Cerrar tip" style="font-size: 0.75rem;"></button>
+            </div>
+        </div>
+
+        <div class="tip-content-text {{ 'small' if compacto else '' }} text-break" style="white-space: pre-line;">{{ tip.tips }}</div>
+
+        <div class="tip-action-container mt-2" style="{{ 'display: block;' if tip.url_accion else 'display: none;' }}">
+            <a href="{{ tip.url_accion or '#' }}" class="btn btn-sm btn-light border fw-semibold shadow-xs tip-action-btn" target="_blank" rel="noopener">
+                <i class="bi bi-box-arrow-up-right me-1"></i><span class="tip-action-text">{{ tip.texto_accion or 'Ver enlace' }}</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+if (typeof window.rotarTip === 'undefined') {
+    window.rotarTip = function(containerId) {
+        const box = document.getElementById(containerId);
+        if (!box) return;
+
+        const btn = box.querySelector('.btn-next-tip');
+        if (btn) {
+            btn.classList.add('disabled');
+            const icon = btn.querySelector('i');
+            if (icon) icon.classList.add('bi-spin');
+        }
+
+        fetch('/api/tips/next')
+            .then(res => res.json())
+            .then(data => {
+                if (!data || !data.tips) return;
+
+                // Animación fade
+                box.style.opacity = '0.3';
+                setTimeout(() => {
+                    box.setAttribute('data-tip-id', data.id || '');
+                    const tipo = data.tipo || 'info';
+                    box.classList.remove('alert-info', 'alert-warning', 'alert-success');
+                    if (tipo === 'warning') box.classList.add('alert-warning');
+                    else if (tipo === 'success') box.classList.add('alert-success');
+                    else box.classList.add('alert-info');
+
+                    const iconElem = box.querySelector('.tip-icon i');
+                    if (iconElem) {
+                        iconElem.className = 'bi';
+                        if (tipo === 'warning') iconElem.className = 'bi bi-exclamation-triangle-fill text-warning';
+                        else if (tipo === 'success') iconElem.className = 'bi bi-stars text-success';
+                        else iconElem.className = 'bi bi-lightbulb-fill text-info';
+                    }
+
+                    const prioElem = box.querySelector('.tip-prio-badge');
+                    if (prioElem) {
+                        prioElem.style.display = data.es_prioritario ? 'inline-block' : 'none';
+                    }
+
+                    const tipoLabel = tipo === 'warning' ? 'Alerta Operativa' : (tipo === 'success' ? 'Novedad' : 'Tip del día');
+                    const labelElem = box.querySelector('.tip-tipo-label');
+                    if (labelElem) {
+                        labelElem.innerHTML = tipoLabel + (data.title ? ': <span class="tip-title-text">' + data.title + '</span>' : '');
+                    }
+
+                    const groupElem = box.querySelector('.tip-group-badge');
+                    if (groupElem) {
+                        groupElem.textContent = data.group_name || '';
+                        groupElem.style.display = data.group_name ? 'inline-block' : 'none';
+                    }
+
+                    const contentElem = box.querySelector('.tip-content-text');
+                    if (contentElem) {
+                        contentElem.textContent = data.tips;
+                    }
+
+                    // Botón de acción rápida
+                    const actionContainer = box.querySelector('.tip-action-container');
+                    const actionBtn = box.querySelector('.tip-action-btn');
+                    const actionText = box.querySelector('.tip-action-text');
+                    if (actionContainer && actionBtn && actionText) {
+                        if (data.url_accion) {
+                            actionBtn.setAttribute('href', data.url_accion);
+                            actionText.textContent = data.texto_accion || 'Ver enlace';
+                            actionContainer.style.display = 'block';
+                        } else {
+                            actionContainer.style.display = 'none';
+                        }
+                    }
+
+                    // Feedback estado
+                    const fbBtn = box.querySelector('.btn-feedback-tip');
+                    const fbIcon = fbBtn ? fbBtn.querySelector('i') : null;
+                    const fbText = fbBtn ? fbBtn.querySelector('.feedback-text') : null;
+                    const fbBadge = fbBtn ? fbBtn.querySelector('.feedback-count-badge') : null;
+                    if (fbBtn && fbIcon && fbText && fbBadge) {
+                        if (data.user_voted) {
+                            fbBtn.className = 'btn btn-link btn-sm text-decoration-none p-0 btn-feedback-tip text-primary fw-bold';
+                            fbIcon.className = 'bi bi-hand-thumbs-up-fill';
+                            fbText.textContent = '¡Me sirvió!';
+                        } else {
+                            fbBtn.className = 'btn btn-link btn-sm text-decoration-none p-0 btn-feedback-tip text-muted';
+                            fbIcon.className = 'bi bi-hand-thumbs-up';
+                            fbText.textContent = 'Me sirvió';
+                        }
+                        const count = data.likes_count || 0;
+                        fbBadge.textContent = count;
+                        fbBadge.style.display = count > 0 ? 'inline-block' : 'none';
+                    }
+
+                    box.style.opacity = '1';
+                }, 150);
+            })
+            .catch(err => console.warn('No se pudo rotar el tip:', err))
+            .finally(() => {
+                if (btn) {
+                    btn.classList.remove('disabled');
+                    const icon = btn.querySelector('i');
+                    if (icon) icon.classList.remove('bi-spin');
+                }
+            });
+    };
+}
+
+if (typeof window.darFeedbackTip === 'undefined') {
+    window.darFeedbackTip = function(containerId) {
+        const box = document.getElementById(containerId);
+        if (!box) return;
+
+        const tipId = box.getAttribute('data-tip-id');
+        if (!tipId) return;
+
+        const fbBtn = box.querySelector('.btn-feedback-tip');
+        const fbIcon = fbBtn ? fbBtn.querySelector('i') : null;
+        const fbText = fbBtn ? fbBtn.querySelector('.feedback-text') : null;
+        const fbBadge = fbBtn ? fbBtn.querySelector('.feedback-count-badge') : null;
+
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+            || document.querySelector('input[name="csrf_token"]')?.value
+            || '{{ csrf_token() }}';
+
+        fetch(`/api/tips/${tipId}/feedback`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (!data || !data.ok) return;
+            if (fbBtn && fbIcon && fbText && fbBadge) {
+                if (data.user_voted) {
+                    fbBtn.className = 'btn btn-link btn-sm text-decoration-none p-0 btn-feedback-tip text-primary fw-bold';
+                    fbIcon.className = 'bi bi-hand-thumbs-up-fill';
+                    fbText.textContent = '¡Me sirvió!';
+                } else {
+                    fbBtn.className = 'btn btn-link btn-sm text-decoration-none p-0 btn-feedback-tip text-muted';
+                    fbIcon.className = 'bi bi-hand-thumbs-up';
+                    fbText.textContent = 'Me sirvió';
+                }
+                const count = data.likes_count || 0;
+                fbBadge.textContent = count;
+                fbBadge.style.display = count > 0 ? 'inline-block' : 'none';
+            }
+        })
+        .catch(err => console.warn('Error al registrar feedback de tip:', err));
+    };
+}
+</script>
+{% endif %}
+{% endmacro %}
+

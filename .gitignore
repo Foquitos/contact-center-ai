@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+
+# Entornos virtuales
+venv/
+.venv/
+env/
+
+# Variables y secretos
+.env
+.env.local
+*/credentials.json
+*/token.json
+*/service_account.json
+*/CREDENTIALS_GOOGLE_SHEET_JSON.json
+.powerbi_token.json
+
+# IDEs
+.vscode/
+.idea/
+
+# Logs y temporales
+logs/
+*.log
+*.pot
+storage/
+documentacion/
+
+# Build
+build/
+dist/
+
+
+graphify-out/
+# Buffer del colector del ENRE mientras falta la migración 2026-09-14c
+logs/cortes_enre/

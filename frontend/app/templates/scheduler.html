@@ -1,0 +1,331 @@
+{% extends "layout.html" %}
+
+{% block title %}Scheduler de Auditorías - Acme Chat{% endblock %}
+
+{% block styles %}
+    {{ super() }}
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/themes/default/style.min.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/auditoria.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scheduler.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    
+    <div id="scheduler-list-view">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h2 class="h4 mb-1"><i class="bi bi-clock-history me-2"></i>Auditorías Programadas</h2>
+                <p class="mb-0 opacity-75 small">Gestiona las auditorías automáticas recurrentes.</p>
+            </div>
+            <button class="btn btn-primary shadow-sm" onclick="toggleView('form')">
+                <i class="bi bi-plus-lg me-2"></i>Nueva Programación
+            </button>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Empresa / Campaña</th>
+                                <th>Frecuencia</th>
+                                <th>Próxima Ejecución</th>
+                                <th>Destino</th>
+                                <th>Estado</th>
+                                <th class="text-end">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="scheduler-form-view" class="hidden">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h2 class="h4 mb-1"><i class="bi bi-gear me-2"></i>Configurar Programación</h2>
+                <p class="mb-0 opacity-75 small" id="form-subtitle">Creando nueva tarea automática</p>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" onclick="toggleView('list')">
+                <i class="bi bi-arrow-left me-2"></i>Volver a la lista
+            </button>
+        </div>
+
+        <div id="validation-error-msg" class="alert alert-danger hidden rounded-3 mb-4 shadow-sm">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i><span id="validation-text"></span>
+        </div>
+
+        <form id="scheduleForm" action="#" method="POST">
+            
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" id="edit_scheduler_id" name="edit_scheduler_id" value=""/>
+
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white pt-3 pb-0 border-bottom-0">
+                    <ul class="nav nav-tabs" id="schedulerTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="ejecucion-tab" data-bs-toggle="tab" data-bs-target="#ejecucion" type="button" role="tab"><i class="bi bi-calendar-event me-2"></i>Cuándo y Dónde</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="parametros-tab" data-bs-toggle="tab" data-bs-target="#parametros" type="button" role="tab"><i class="bi bi-sliders me-2"></i>Qué Auditar</button>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="card-body p-4 tab-content" id="schedulerTabsContent">
+                    
+                    <div class="tab-pane fade show active" id="ejecucion" role="tabpanel">
+                        <div class="row g-4">
+                            <div class="col-md-6 border-end">
+                                <h6 class="fw-bold mb-3 text-primary"><i class="bi bi-info-circle me-2"></i>Detalles de la Tarea</h6>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-muted">NOMBRE DE LA PROGRAMACIÓN</label>
+                                    <input type="text" class="form-control" name="task_name" placeholder="Ej: Auditoría Diaria Calidad" required>
+                                </div>
+
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold text-muted">FRECUENCIA</label>
+                                        <select class="form-select" name="frecuencia" id="frecuenciaSelect" required>
+                                            <option value="diaria">Diaria</option>
+                                            <option value="semanal">Semanal</option>
+                                            <option value="mensual">Mensual</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold text-muted">HORA DE EJECUCIÓN</label>
+                                        <input type="time" class="form-control" name="hora_ejecucion" value="08:00" required>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3 hidden" id="diasSemanaContainer">
+                                    <label class="form-label small fw-bold text-muted">DÍAS DE LA SEMANA <span class="text-danger">*</span></label>
+                                    <div class="btn-group w-100" role="group">
+                                        <input type="checkbox" class="btn-check" name="dias[]" id="d1" value="L"><label class="btn btn-outline-secondary btn-sm" for="d1">L</label>
+                                        <input type="checkbox" class="btn-check" name="dias[]" id="d2" value="M"><label class="btn btn-outline-secondary btn-sm" for="d2">M</label>
+                                        <input type="checkbox" class="btn-check" name="dias[]" id="d3" value="X"><label class="btn btn-outline-secondary btn-sm" for="d3">X</label>
+                                        <input type="checkbox" class="btn-check" name="dias[]" id="d4" value="J"><label class="btn btn-outline-secondary btn-sm" for="d4">J</label>
+                                        <input type="checkbox" class="btn-check" name="dias[]" id="d5" value="V"><label class="btn btn-outline-secondary btn-sm" for="d5">V</label>
+                                        <input type="checkbox" class="btn-check" name="dias[]" id="d6" value="S"><label class="btn btn-outline-secondary btn-sm" for="d6">S</label>
+                                        <input type="checkbox" class="btn-check" name="dias[]" id="d7" value="D"><label class="btn btn-outline-secondary btn-sm" for="d7">D</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <h6 class="fw-bold mb-3 text-success"><i class="bi bi-send me-2"></i>Acciones al Finalizar</h6>
+                                
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="sendEmail" name="send_email">
+                                    <label class="form-check-label fw-bold" for="sendEmail">Enviar reporte por Email (Excel)</label>
+                                    <div class="mt-2 hidden" id="emailInputContainer">
+                                        <input type="text" class="form-control form-control-sm" id="email_addresses" name="email_addresses" placeholder="ejemplo1@mail.com, ejemplo2@mail.com">
+                                        <small class="text-muted">Separa los correos con comas.</small>
+                                    </div>
+                                </div>
+
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="sendGsheets" name="send_gsheets">
+                                    <label class="form-check-label fw-bold" for="sendGsheets">Subir a Google Sheets</label>
+                                    
+                                    <div class="mt-2 hidden" id="gsheetsInputContainer">
+                                        
+                                        <div class="alert alert-info py-2 px-3 small mb-2 border-info bg-opacity-10">
+                                            <strong><i class="bi bi-info-circle-fill me-1"></i>Instrucciones:</strong>
+                                            <ul class="mb-0 ps-3 mt-1">
+                                                <li>El <strong>ID del Spreadsheet</strong> está en la URL, entre <code>/d/</code> y <code>/edit</code>.</li>
+                                                <li>Comparte tu archivo como <strong>Editor</strong> a esta cuenta (haz clic para copiar):<br>
+                                                    <code class="user-select-all bg-white px-1 rounded border text-primary" style="cursor: pointer;" title="Clic para seleccionar">sheets-bot@mi-proyecto-gcp.iam.gserviceaccount.com</code>
+                                                </li>
+                                                <li>Si dejas el <strong>Nombre de la hoja</strong> vacío, se creará una nueva con la fecha del día.</li>
+                                            </ul>
+                                        </div>
+
+                                        <input type="text" class="form-control form-control-sm mb-2" id="gsheet_id" name="gsheet_id" placeholder="ID del Spreadsheet (Ej: 1A2b3C...)">
+                                        <input type="text" class="form-control form-control-sm" id="gsheet_name" name="gsheet_name" placeholder="Nombre de la hoja (Opcional - Ej: Hoja 1)">
+                                    </div>
+                                </div>
+                                
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="saveDb" name="save_db" checked disabled>
+                                    <label class="form-check-label fw-bold text-muted" for="saveDb">Guardar en Base de Datos</label>
+                                </div>
+
+                                <hr class="my-3">
+
+                                <div class="mb-2">
+                                    <label class="form-label small fw-bold text-muted" for="columnTemplateSelect">
+                                        <i class="bi bi-layout-three-columns me-1"></i>PLANTILLA DE COLUMNAS (OPCIONAL)
+                                    </label>
+                                    <select class="form-select form-select-sm" id="columnTemplateSelect" name="column_template_id">
+                                        <option value="">-- Todas las columnas (por defecto) --</option>
+                                    </select>
+                                    <div class="form-text small">
+                                        Si seleccionás una plantilla, el reporte enviado por email / subido a Sheets
+                                        traerá solo las columnas que definiste en Auditorías Realizadas. Se cargan al
+                                        elegir empresa / campaña / plantilla.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="tab-pane fade" id="parametros" role="tabpanel">
+                        <div class="alert alert-info py-2 small">
+                            <i class="bi bi-info-square me-2"></i>La IA aplicará estos filtros automáticamente en cada ejecución.
+                        </div>
+                        
+                        <div class="row g-4 mt-1">
+                            <div class="col-lg-4 border-end-lg">
+                                <div class="mb-3">
+                                    <label class="form-label text-muted small fw-bold">EMPRESA</label>
+                                    <select class="form-select" id="empresaSelect" name="empresa" required>
+                                        <option value="" selected disabled>Cargando...</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label text-muted small fw-bold">CAMPAÑA</label>
+                                    <select class="form-select" id="campanaSelect" name="campana" required disabled>
+                                        <option value="" selected disabled>-- Esperando Empresa --</option>
+                                    </select>
+                                </div>
+                                <div class="mb-4">
+                                    <label class="form-label text-muted small fw-bold">PLANTILLA DE EVALUACIÓN</label>
+                                    <select class="form-select" id="plantillaSelect" name="plantilla_id" required disabled>
+                                        <option value="" selected disabled>-- Esperando Campaña --</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="form-label fw-bold small text-muted">TIPIFICACIONES Y CATEGORÍAS</label>
+                                    <select class="form-select select2-multiple hidden" id="tipificacionSelect" name="tipificacion" multiple="multiple" disabled>
+                                         <option value="" disabled>-- Selecciona --</option>
+                                    </select>
+                                    <div id="tipificacionTreeContainer" class="tree-container-wrapper hidden">
+                                        <input type="text" id="treeSearch" class="tree-search-input" placeholder="🔍 Buscar categoría...">
+                                        <div id="jstree_div"></div>
+                                        <div class="text-end border-top pt-1 mt-1">
+                                            <small class="text-muted fst-italic me-2" id="tree-counter">0 seleccionados</small>
+                                        </div>
+                                    </div>
+                                    <div id="tree-hidden-inputs"></div>
+                                </div>
+                                
+                                <div class="form-floating mb-3">
+                                    <input type="number" class="form-control font-monospace fw-bold text-primary" id="cantidad" name="cantidad" value="10" min="1" required>
+                                    <label for="cantidad">Cantidad de Auditorías por corrida</label>
+                                </div>
+
+                                <div class="bg-light p-3 rounded-3 mb-3 border">
+                                    {# Batch por defecto: una programación corre sola y sin nadie mirando,
+                                       así que el sincrónico solo suma costo (x2). Desactivarlo exige
+                                       audit:sync, que el backend revalida al crear/editar. #}
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" name="is_batch" id="isBatch" value="true"
+                                               checked {% if not puede_sincronico %}disabled{% endif %}>
+                                        <label class="form-check-label text-primary fw-bold" for="isBatch">
+                                            <i class="bi bi-stack me-1"></i> Ejecutar en modo Batch (Cola asíncrona)
+                                        </label>
+                                        {% if puede_sincronico %}
+                                        <div class="form-text small">
+                                            Recomendado: cuesta la mitad. Desactivalo solo si necesitás el
+                                            resultado dentro de la misma corrida.
+                                        </div>
+                                        {% endif %}
+                                    </div>
+                                    <div class="form-check form-switch border-top pt-2 mt-2">
+                                        <input class="form-check-input" type="checkbox" name="reauditar" id="tipoReauditar" value="true">
+                                        <label class="form-check-label text-muted fw-bold" for="tipoReauditar" title="Si se activa, puede auditar audios que ya fueron evaluados antes.">
+                                            Reauditar interacciones
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="bg-info bg-opacity-10 p-3 rounded-3 mb-3 border border-info hidden" id="container-modos-especiales">
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" id="por_operador" name="por_operador" value="true">
+                                        <label class="form-check-label fw-bold text-info-emphasis" for="por_operador">Auditar por Operador</label>
+                                    </div>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="por_tipificacion" name="por_tipificacion" value="true">
+                                        <label class="form-check-label fw-bold text-info-emphasis" for="por_tipificacion">Auditar por Tipificación</label>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <div class="col-lg-8">
+                                <div class="row g-3 mb-4">
+                                    <div class="col-md-12">
+                                        <label class="form-label text-muted small fw-bold">RANGO DE FECHAS A AUDITAR <span class="text-danger">*</span></label>
+                                        <select class="form-select border-primary" name="rango_dinamico" required>
+                                            <option value="dia_habil_anterior">Día Hábil Anterior (Lun-Vie)</option>
+                                            <option value="ayer">Ayer (Últimas 24 hs)</option>
+                                            <option value="ultimos_7">Últimos 7 días</option>
+                                            <option value="mes_actual">Lo que va del mes actual</option>
+                                            <option value="mes_anterior">Mes Anterior completo</option>
+                                        </select>
+                                        <div class="form-text small">Rango relativo al momento en que se ejecute la tarea.</div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-muted">SENTIDO</label>
+                                    <div>
+                                        <div class="btn-group w-100" role="group">
+                                            <input type="checkbox" class="btn-check" name="sentido" id="sentidoEntrante" value="Entrante">
+                                            <label class="btn btn-outline-secondary btn-sm" for="sentidoEntrante">Entrante</label>
+                                            
+                                            <input type="checkbox" class="btn-check" name="sentido" id="sentidoSaliente" value="Saliente">
+                                            <label class="btn btn-outline-secondary btn-sm" for="sentidoSaliente">Saliente</label>
+
+                                            <input type="checkbox" class="btn-check" name="sentido" id="sentidoInterno" value="Interno">
+                                            <label class="btn btn-outline-secondary btn-sm" for="sentidoInterno">Interno</label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row g-2">
+                                    <div class="col-md-6">
+                                        <label class="small text-muted">Login ID (Agentes específicos)</label>
+                                        <select class="form-select select2-tags" id="loginid" name="loginid" multiple="multiple"></select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="small text-muted">Duración (Segundos)</label>
+                                        <div class="d-flex gap-2">
+                                            <input type="number" class="form-control form-control-sm" name="duracion_min" placeholder="Min" value="60">
+                                            <input type="number" class="form-control form-control-sm" name="duracion_max" placeholder="Max" value="600">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-footer bg-light text-end p-3">
+                    <button type="button" class="btn btn-light border me-2" onclick="toggleView('list')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="btnGuardar"><i class="bi bi-save me-2"></i>Guardar Programación</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/jstree.min.js"></script>
+    <script src="{{ url_for('static', filename='js/scheduler.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,263 @@
+/* Tutorial guiado: recorre la pantalla real resaltando un control por vez.
+   Todo va namespaceado con .tour-* para no pisar nada de la app.
+
+   La oscuridad NO se dibuja con un solo panel translúcido con un agujero, sino con
+   cuatro paneles alrededor del control resaltado: así el hueco queda nítido y el
+   contorno del control se ve completo. Ninguno de los cuatro recibe clics
+   (pointer-events: none): la pantalla se sigue usando mientras el tutorial corre,
+   que es de lo que se trata. Lo único que no se puede tocar son los botones que
+   lanzan una auditoría, y de eso se encarga el JS (ver ponerCandado).
+
+   Escala de z-index de la app: navbar 1050, burbuja de Coral 1045, modales de
+   Bootstrap 1055. El tutorial va arriba de todo (2000+) porque también explica
+   cosas del navbar. */
+
+.tour-capa {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    pointer-events: none;
+}
+
+.tour-panel {
+    position: fixed;
+    background: rgba(9, 20, 33, 0.55);
+    pointer-events: none;          /* la pantalla se sigue usando */
+    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* El marco alrededor del control. Solo decorativo: nunca recibe clics. */
+.tour-marco {
+    position: fixed;
+    border-radius: 10px;
+    box-shadow: 0 0 0 3px var(--acme-secondary, #00a8cc),
+                0 0 0 7px rgba(0, 168, 204, 0.28);
+    pointer-events: none;
+    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tour-marco.is-interactivo {
+    box-shadow: 0 0 0 3px #ffc107, 0 0 0 8px rgba(255, 193, 7, 0.32);
+    animation: tour-latido 1.6s ease-in-out infinite;
+}
+
+@keyframes tour-latido {
+    0%, 100% { box-shadow: 0 0 0 3px #ffc107, 0 0 0 8px rgba(255, 193, 7, 0.32); }
+    50%      { box-shadow: 0 0 0 3px #ffc107, 0 0 0 14px rgba(255, 193, 7, 0.10); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tour-panel, .tour-marco, .tour-globo { transition: none; }
+    .tour-marco.is-interactivo { animation: none; }
+}
+
+/* --- El globo con la explicación --- */
+
+.tour-globo {
+    position: fixed;
+    z-index: 2010;
+    width: min(24rem, calc(100vw - 2rem));
+    background: var(--acme-surface, #fff);
+    border-radius: var(--card-radius, 12px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: top 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+                left 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Paso sin control asociado (presentación, cierre, o un paso cuyo control no está
+   en pantalla): el globo va centrado y un poco más ancho. */
+.tour-globo.is-centrado {
+    width: min(30rem, calc(100vw - 2rem));
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%);
+}
+
+.tour-flecha {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    background: var(--acme-primary, #003366);
+    transform: rotate(45deg);
+}
+/* La flecha se pinta del color del encabezado solo cuando sale de ese lado. En los
+   demás sale del cuerpo blanco, donde quedaría invisible: la sombra le devuelve el
+   borde para que se lea como una punta y no como un pedazo suelto de la tarjeta. */
+.tour-flecha.is-cuerpo {
+    background: var(--acme-surface, #fff);
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.12);
+}
+.tour-globo.is-centrado .tour-flecha { display: none; }
+
+.tour-cabecera {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.75rem 0.9rem;
+    background: var(--acme-primary, #003366);
+    color: #fff;
+}
+
+.tour-pez {
+    width: 1.6rem;
+    height: 1.6rem;
+    flex-shrink: 0;
+    color: #fff;   /* el cuerpo del pez toma currentColor */
+}
+
+.tour-titulo {
+    font-size: 0.98rem;
+    font-weight: 600;
+    margin: 0;
+    line-height: 1.25;
+    flex-grow: 1;
+}
+
+.tour-paso-num {
+    font-size: 0.72rem;
+    opacity: 0.75;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.tour-cerrar {
+    background: none;
+    border: none;
+    color: #fff;
+    opacity: 0.75;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0.15rem 0.25rem;
+}
+.tour-cerrar:hover { opacity: 1; }
+
+.tour-cuerpo {
+    padding: 0.85rem 0.95rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: var(--acme-text, #333);
+    max-height: 45vh;
+    overflow-y: auto;
+}
+.tour-cuerpo p:last-child { margin-bottom: 0; }
+.tour-cuerpo ul { margin-bottom: 0; padding-left: 1.1rem; }
+.tour-cuerpo li + li { margin-top: 0.3rem; }
+
+/* Aviso de "esto lo tenés que hacer vos" en los pasos interactivos. */
+.tour-hacelo {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-top: 0.7rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 8px;
+    background: rgba(255, 193, 7, 0.14);
+    border: 1px solid rgba(255, 193, 7, 0.45);
+    font-size: 0.83rem;
+    color: #7a5b00;
+}
+
+.tour-pie {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.6rem 0.95rem 0.8rem;
+    border-top: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+.tour-salir {
+    font-size: 0.8rem;
+    color: var(--acme-text-muted, #6c757d);
+    background: none;
+    border: none;
+    padding: 0.25rem 0;
+    margin-right: auto;
+    text-decoration: underline;
+}
+.tour-salir:hover { color: var(--acme-text, #333); }
+
+/* Barra de avance: la única pista de "cuánto falta" que no obliga a contar pasos. */
+.tour-progreso {
+    height: 3px;
+    background: rgba(0, 0, 0, 0.07);
+}
+.tour-progreso-relleno {
+    height: 100%;
+    background: var(--acme-secondary, #00a8cc);
+    transition: width 0.25s ease-in-out;
+}
+
+/* Lo que sí queda bloqueado: los botones que lanzan una auditoría de verdad. Se
+   apagan visualmente (no con `disabled`, que la pantalla maneja por su cuenta) y el
+   JS anula el clic y el submit. */
+.tour-bloqueado {
+    opacity: 0.45 !important;
+    cursor: not-allowed !important;
+    box-shadow: none !important;
+}
+
+/* Aviso al intentar usar uno de esos botones. */
+.tour-aviso {
+    position: fixed;
+    left: 50%;
+    bottom: 1.5rem;
+    transform: translateX(-50%);
+    z-index: 2050;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    max-width: min(30rem, calc(100vw - 2rem));
+    padding: 0.6rem 0.9rem;
+    border-radius: 10px;
+    background: #7a5b00;
+    color: #fff;
+    font-size: 0.85rem;
+    line-height: 1.35;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+.tour-aviso[hidden] { display: none; }
+
+/* Los desplegables y calendarios se dibujan al final del <body> con z-index bajo
+   (select2 usa 1051): sin esto, abrir "Empresa" durante el tutorial mostraría la
+   lista de opciones apagada, detrás de la oscuridad. Solo mientras el tutorial corre. */
+body.tour-activo .select2-container--open .select2-dropdown,
+body.tour-activo .select2-container--open,
+body.tour-activo .flatpickr-calendar.open,
+body.tour-activo .jstree-contextmenu {
+    z-index: 2030 !important;
+}
+
+/* --- Botón flotante para volver a lanzar el tutorial --- */
+/* Va apilado arriba de la burbuja de Coral, a la que acompaña. */
+.tour-fab {
+    position: fixed;
+    right: 1.25rem;
+    bottom: 5rem;
+    z-index: 1044;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.8rem;
+    border: 1px solid rgba(0, 51, 102, 0.15);
+    border-radius: 2rem;
+    background: #fff;
+    color: var(--acme-primary, #003366);
+    font-size: 0.8rem;
+    font-weight: 500;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+    transition: transform 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+.tour-fab:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.tour-fab[hidden] { display: none; }
+
+@media (max-width: 575.98px) {
+    .tour-fab span { display: none; }
+    .tour-fab { padding: 0.5rem; border-radius: 50%; }
+}

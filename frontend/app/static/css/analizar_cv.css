@@ -1,0 +1,93 @@
+/* Contenedor de la tabla de historial */
+#history-table-container {
+    max-height: 600px;
+    overflow-y: auto;  /* Scroll vertical permitido */
+    /* Permitimos scroll horizontal solo si es necesario (pantallas muy chicas), 
+       pero con los ajustes de abajo no debería aparecer en desktop */
+    overflow-x: auto; 
+    
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    width: 100%;
+    background-color: #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+}
+
+/* Forzar diseño fijo de tabla */
+#history-table-container .table {
+    width: 100%;
+    table-layout: fixed; /* Distribuye el espacio matemáticamente */
+    margin-bottom: 0;
+}
+
+/* --- DEFINICIÓN DE ANCHOS DE COLUMNA --- */
+#history-table-container .table th:nth-child(1) { width: 22%; } /* Candidato */
+#history-table-container .table th:nth-child(2) { width: 5%; text-align: center; } /* Edad */
+#history-table-container .table th:nth-child(3) { width: 12%; } /* Fecha */
+#history-table-container .table th:nth-child(4) { width: 10%; text-align: center; } /* Puntaje */
+#history-table-container .table th:nth-child(5) { width: 15%; } /* Sede */
+#history-table-container .table th:nth-child(6) { width: 6%; text-align: center; } /* Km */
+#history-table-container .table th:nth-child(7) { width: 6%; text-align: center; } /* Min */
+#history-table-container .table th:last-child   { width: 160px; text-align: right; } /* Acciones */
+
+/* Estilos de celdas (Compactar contenido) */
+#history-table-container .table th {
+    position: sticky;
+    top: 0;
+    background-color: #f8f9fa;
+    z-index: 2;
+    font-size: 0.85rem;
+    padding: 0.8rem 0.4rem;
+    vertical-align: middle;
+}
+
+#history-table-container .table td {
+    padding: 0.6rem 0.4rem;
+    font-size: 0.85rem;
+    vertical-align: middle;
+    
+    /* Cortar texto largo con puntos (...) excepto en Nombre */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Excepción: Nombre del candidato puede saltar de línea */
+#history-table-container .table td:nth-child(1) {
+    white-space: normal;
+    line-height: 1.2;
+    font-weight: 600;
+    color: #333;
+}
+
+/* Alineación de datos numéricos */
+#history-table-container .table td:nth-child(2),
+#history-table-container .table td:nth-child(4),
+#history-table-container .table td:nth-child(6),
+#history-table-container .table td:nth-child(7) {
+    text-align: center;
+}
+
+/* --- Otros estilos de la página --- */
+#history-placeholder { font-style: italic; }
+#analisis-status .alert { margin-bottom: 0; }
+#submitAnalisisButton .bi { display: inline-block; }
+
+/* Estilos para Modal de Detalles */
+#candidate-details-list { column-count: 2; column-gap: 2rem; padding-left: 0; }
+@media (max-width: 768px) { #candidate-details-list { column-count: 1; } }
+#candidate-details-list dt { font-weight: 600; color: #343a40; padding-top: 0.5rem; border-top: 1px solid #eee; }
+#candidate-details-list dt:first-of-type { border-top: none; padding-top: 0; }
+#candidate-details-list dd { margin-left: 1rem; margin-bottom: 0.5rem; white-space: pre-wrap; word-break: break-word; }
+
+/* Fix Select2 Multiple Height */
+.select2-container--bootstrap-5 .select2-selection--multiple {
+    max-height: 31px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden;
+    display: flex;
+    flex-wrap: wrap;
+}
+.select2-container--bootstrap-5 .select2-selection--multiple::-webkit-scrollbar { width: 4px; }
+.select2-container--bootstrap-5 .select2-selection--multiple::-webkit-scrollbar-thumb { background-color: #adb5bd; border-radius: 2px; }
+.select2-container--bootstrap-5 .select2-search__field { margin-top: 2px !important; }

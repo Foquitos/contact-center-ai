@@ -1,0 +1,647 @@
+{% extends "layout.html" %}
+
+{% block title %}Mis Auditorías Realizadas{% endblock %}
+
+{% block styles %}
+    {{ super() }}
+    {# Dependencias de CSS para Select2 y Flatpickr #}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/auditorias_realizadas.css') }}">
+    
+    {# Estilos específicos para el Chat de Transcripción #}
+    <style>
+        /* Contenedor del chat. SIN scroll propio: el modal ya es
+           modal-dialog-scrollable, así que scrollea .modal-body. Si además
+           scrolleara acá adentro quedaban dos barras anidadas. */
+        #chat-container {
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        /* Burbuja general */
+        .chat-bubble {
+            padding: 10px 15px;
+            border-radius: 15px;
+            margin-bottom: 10px;
+            max-width: 85%;
+            position: relative;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            font-size: 0.95rem;
+            line-height: 1.4;
+        }
+
+        /* Burbuja del Agente (Izquierda, Azul suave) */
+        .chat-agent {
+            background-color: #e3f2fd; /* Azul muy claro */
+            color: #0d47a1;
+            align-self: flex-start; /* Alineado a la izquierda */
+            border-bottom-left-radius: 2px;
+            margin-right: auto;
+        }
+
+        /* Burbuja del Cliente (Derecha, Verde suave) */
+        .chat-client {
+            background-color: #f1f8e9; /* Verde muy claro */
+            color: #33691e;
+            align-self: flex-end; /* Alineado a la derecha */
+            border-bottom-right-radius: 2px;
+            margin-left: auto;
+        }
+
+        /* Burbuja del Bot / IVR (Izquierda, gris): son respuestas automáticas,
+           no puntúan al operador y conviene distinguirlas de un vistazo. */
+        .chat-bot {
+            background-color: #eceff1;
+            color: #37474f;
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+            margin-right: auto;
+        }
+
+        /* Mensajes de un tramo que Mitrol no informa de quién es (ver
+           AuditorIA/downloads/Mitrol.py): se muestran, pero avisando la duda. */
+        .chat-unknown {
+            background-color: #fff8e1;
+            color: #7c5700;
+            border: 1px dashed #e0b400;
+            align-self: center;
+            margin: 0 auto 10px auto;
+        }
+
+        /* Notas de la conversación: transferencias, cierres y el separador entre el
+           chat auditado y los chats previos del mismo cliente. */
+        .chat-system {
+            background-color: transparent;
+            box-shadow: none;
+            color: #6c757d;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            text-align: center;
+            align-self: center;
+            max-width: 100%;
+            padding: 6px 10px;
+        }
+
+        /* Los mensajes de chat traen saltos de línea propios (formularios de datos del
+           paciente, plantillas): se respetan tal cual se escribieron. */
+        .chat-text {
+            white-space: pre-wrap;
+        }
+
+        /* Metadatos (Nombre y Hora) */
+        .chat-meta {
+            font-size: 0.75rem;
+            color: #6c757d;
+            margin-bottom: 4px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+        }
+
+        /* Indicador de Confianza Baja */
+        .chat-confidence-low {
+            border: 2px solid #ffc107; /* Borde amarillo */
+        }
+
+        /* Reproductor de audio en el modal. Vive fuera del .modal-body (ver markup),
+           así que queda fijo por estructura mientras se scrollea la transcripción. */
+        #audio-player-container .audio-player-card {
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+        }
+        #audio-player {
+            height: 40px;
+            width: 100%;
+            min-width: 0;
+        }
+    </style>
+{% endblock %}
+
+
+{% block page_container %}container-wide{% endblock %}
+
+{% block content %}
+{# Pasamos el token API en un atributo data para que JS lo pueda leer #}
+{# audit:review habilita la revisión humana (Golden Set). Es un permiso aparte de
+   audit:execute: auditar con IA no es lo mismo que sentar criterio sobre si la IA
+   acertó — esa corrección es la verdad contra la que después se mide la plantilla. #}
+{% set puede_revisar = session.get('is_super_admin') or 'audit:review' in session.get('permissions', []) %}
+{# audit:reauditar es aparte de todo lo demás: reauditar REEMPLAZA una auditoría ya
+   publicada —la nota que el operador vio cambia— y además gasta tokens. La corrida
+   anterior queda archivada, pero el reemplazo es real. #}
+{% set puede_reauditar = session.get('is_super_admin') or 'audit:reauditar' in session.get('permissions', []) %}
+<div id="auditorias-container" data-api-token="{{ api_token }}"
+     data-puede-revisar="{{ '1' if puede_revisar else '0' }}"
+     data-puede-reauditar="{{ '1' if puede_reauditar else '0' }}">
+
+    {# Hero header #}
+    <div class="audit-hero d-flex align-items-center">
+        <div class="hero-icon"><i class="bi bi-clipboard-data"></i></div>
+        <div>
+            <h1>Mis Auditorías Realizadas</h1>
+            <p>Filtrá por fecha, plantilla y por cualquier columna del resultado; consultá la transcripción y descargá reportes.</p>
+        </div>
+    </div>
+
+    <div id="filter-error-message" class="alert alert-danger" style="display: none;"></div>
+
+    <div class="card">
+        <div class="card-body">
+
+            <form id="filterForm">
+
+                {# === Sección 1: Plantilla de columnas (entrada rápida) === #}
+                <div class="tpl-banner">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <i class="bi bi-bookmark-star-fill text-primary"></i>
+                        <label for="columnTemplateSelect" class="m-0">Plantilla de columnas</label>
+                        <span class="tpl-badge">opcional</span>
+                    </div>
+                    <select class="form-select" id="columnTemplateSelect">
+                        <option value="">-- Sin plantilla seleccionada --</option>
+                    </select>
+                    <div class="form-text">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Al elegir una plantilla guardada se autocompletan Empresa, Campaña y Plantilla, y se aplican
+                        las columnas que dejaste activas. Si cambiás alguna de las tres manualmente, la plantilla se
+                        deselecciona para evitar inconsistencias.
+                    </div>
+                </div>
+
+                {# === Sección 2: Período === #}
+                <div class="audit-section">
+                    <div class="audit-section-title">
+                        <i class="bi bi-calendar3"></i>Período
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label for="fecha_desde" class="form-label">Fecha Desde <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control flatpickr-input" id="fecha_desde" name="fecha_desde" placeholder="Selecciona fecha..." readonly="readonly" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="fecha_hasta" class="form-label">Fecha Hasta <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control flatpickr-input" id="fecha_hasta" name="fecha_hasta" placeholder="Selecciona fecha..." readonly="readonly" required>
+                        </div>
+                    </div>
+                    <div class="row g-2 mt-1">
+                        <div class="col-12">
+                            <label class="form-label mb-1">El rango aplica sobre:</label>
+                            <div class="btn-group btn-group-sm d-flex" role="group" id="base-fecha" aria-label="Base de la fecha">
+                                <input type="radio" class="btn-check" name="basef" id="bf-auditoria" value="auditoria" checked>
+                                <label class="btn btn-outline-secondary" for="bf-auditoria">Fecha de auditoría</label>
+
+                                <input type="radio" class="btn-check" name="basef" id="bf-interaccion" value="interaccion">
+                                <label class="btn btn-outline-secondary" for="bf-interaccion">Fecha de interacción</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {# === Sección 3: Contexto (Empresa / Campaña / Plantilla) === #}
+                <div class="audit-section">
+                    <div class="audit-section-title">
+                        <i class="bi bi-diagram-3"></i>Contexto de la auditoría
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-4">
+                            <label for="empresaSelect" class="form-label">Empresa <span class="text-danger">*</span></label>
+                            <select class="form-select" id="empresaSelect" name="empresa" required>
+                                <option value="" selected>-- Selecciona Empresa --</option>
+                                {% for empresa_id, empresa_nombre in empresas_data.items() | sort(attribute='1') %}
+                                    <option value="{{ empresa_id }}">{{ empresa_nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="campanaSelect" class="form-label">Campaña <span class="text-danger">*</span></label>
+                            <select class="form-select" id="campanaSelect" name="campana" disabled required>
+                                <option value="" selected>-- Selecciona Empresa --</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="plantillaSelect" class="form-label">Plantilla <span class="text-danger">*</span></label>
+                            <select class="form-select" id="plantillaSelect" name="plantilla" disabled required>
+                                <option value="" selected>-- Selecciona Campaña --</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                {% if puede_revisar %}
+                {# === Sección 3.b: Trabajo de revisión (Golden Set) ===
+                   Vive acá y no en la pantalla de Golden Set porque el auditor de
+                   Calidad trabaja en esta pantalla: es donde escucha el audio, ve la
+                   transcripción y corrige. Un filtro que hay que ir a buscar a otra
+                   página es un filtro que no se usa. #}
+                <div class="audit-section">
+                    <div class="audit-section-title">
+                        <i class="bi bi-clipboard-check"></i>Trabajo de revisión
+                    </div>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-5">
+                            <label for="revisionFiltro" class="form-label">Traer solo</label>
+                            <select class="form-select" id="revisionFiltro" name="revision">
+                                <option value="" selected>-- Todas las auditorías --</option>
+                                <option value="recomendadas">Recomendadas para revisar</option>
+                                <option value="golden_set">Las del Golden Set</option>
+                                <option value="para_reauditar">Las que hay que reauditar</option>
+                                <option value="sin_revisar">Todavía sin revisar</option>
+                                <option value="revisadas">Ya revisadas</option>
+                            </select>
+                        </div>
+                        <div class="col-md-5">
+                            <label for="revisionSet" class="form-label">Golden Set</label>
+                            <select class="form-select" id="revisionSet" name="golden_set_id" disabled>
+                                <option value="" selected>-- Cualquiera --</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="button" class="btn btn-outline-secondary w-100" id="revisionLimpiar"
+                                    disabled title="Volver a traer todas las auditorías del rango de fechas">
+                                <i class="bi bi-x-circle me-1"></i>Quitar
+                            </button>
+                        </div>
+                    </div>
+                    <div id="revisionAyuda" class="alert alert-info py-2 px-3 mt-2 mb-0 small"
+                         style="display: none;"></div>
+                </div>
+                {% endif %}
+
+                {# === Sección 4: Columnas (visible cuando hay plantilla) === #}
+                <fieldset id="columnsPanel" style="display: none;">
+                    <legend>
+                        <i class="bi bi-layout-three-columns me-1"></i>Columnas a traer
+                    </legend>
+
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                        <small class="text-muted">
+                            <i class="bi bi-mouse me-1"></i>
+                            Click para alternar, arrastrá para reordenar. Solo se traerán las activas en el orden visible.
+                        </small>
+                        <div class="btn-group btn-group-sm" role="group" aria-label="Acciones plantilla">
+                            <button type="button" class="btn btn-outline-success" id="btnGuardarTpl">
+                                <i class="bi bi-bookmark-plus me-1"></i>Guardar como…
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" id="btnSobrescribirTpl" disabled>
+                                <i class="bi bi-arrow-clockwise me-1"></i>Sobrescribir
+                            </button>
+                            <button type="button" class="btn btn-outline-danger" id="btnEliminarTpl" disabled>
+                                <i class="bi bi-trash me-1"></i>Eliminar
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="newTemplateForm" class="row g-2 mb-3" style="display: none;">
+                        <div class="col-md-8">
+                            <input type="text" class="form-control form-control-sm" id="newTemplateName"
+                                   placeholder="Nombre de la nueva plantilla (Ej: Reporte mensual calidad)" maxlength="100">
+                        </div>
+                        <div class="col-md-4">
+                            <div class="btn-group btn-group-sm w-100">
+                                <button type="button" class="btn btn-success" id="btnConfirmarGuardar">
+                                    <i class="bi bi-save me-1"></i>Guardar
+                                </button>
+                                <button type="button" class="btn btn-light border" id="btnCancelarGuardar">
+                                    Cancelar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-end mb-2">
+                        <button type="button" class="btn btn-link btn-sm p-0 me-3" id="btnTodasCols">
+                            <i class="bi bi-check-all me-1"></i>Todas
+                        </button>
+                        <button type="button" class="btn btn-link btn-sm p-0" id="btnNingunaCol">
+                            <i class="bi bi-slash-circle me-1"></i>Ninguna
+                        </button>
+                    </div>
+
+                    <div id="columnTogglesContainer">
+                        <span class="text-muted small fst-italic">Selecciona Empresa, Campaña y Plantilla para ver las columnas disponibles…</span>
+                    </div>
+                </fieldset>
+
+                {# === Sección 5: Filtros adicionales === #}
+                <div class="audit-section">
+                    <div class="audit-section-title">
+                        <i class="bi bi-funnel"></i>Filtros adicionales
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label for="id_aplicativo" class="form-label">ID Aplicativo / Interacción</label>
+                            <input type="text" class="form-control" id="id_aplicativo" name="id_aplicativo" placeholder="Ej: 260121101542144...">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="filtro_usuario_tipo" class="form-label">Usuario Auditor</label>
+                            <div class="input-group">
+                                <select class="form-select" id="filtro_usuario_tipo" style="max-width: 180px;">
+                                    <option value="todos" selected>Todos los usuarios</option>
+                                    <option value="propias">Mis auditorías</option>
+                                    <option value="otro">Usuario específico...</option>
+                                </select>
+                                <input type="text" class="form-control" id="usuario_input" name="usuario" placeholder="Nombre de usuario" disabled data-mi-usuario="{{ session.get('user_documento', '') }}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {# === Acciones === #}
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    <button type="submit" class="btn btn-primary" id="searchButton">
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true" style="display: none;"></span>
+                        <i class="bi bi-search me-2"></i>Buscar Auditorías
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="resetButton">
+                        <i class="bi bi-eraser me-2"></i>Limpiar Filtros
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="results-container" class="card mt-3" style="display: none;">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap py-3">
+            <div class="d-flex align-items-baseline gap-2 flex-wrap">
+                <h5 class="mb-0 text-primary"><i class="bi bi-table me-2"></i>Resultados</h5>
+                {# Cuántas filas quedaron después de los filtros de columna (y sobre cuántas
+                   trajo la consulta). Es lo que se descarga en CSV/Excel. #}
+                <span id="results-summary" class="small text-muted"></span>
+            </div>
+
+            <div id="download-buttons-container" style="display: none;" class="d-flex align-items-center gap-3">
+                
+                <div class="d-flex align-items-center flex-wrap gap-3">
+                    
+                    <div class="d-flex align-items-center bg-light rounded p-1 border">
+                        <span class="small text-muted px-2 fw-bold text-uppercase" style="font-size: 0.7rem;">Modo</span>
+                        
+                        <div class="btn-group" role="group" aria-label="Opciones de descarga">
+                            <input type="radio" class="btn-check" name="downloadOption" id="optionSimple" autocomplete="off" checked>
+                            <label class="btn btn-sm btn-outline-secondary border-0 py-1 px-3" for="optionSimple" title="Descarga rápida (solo tabla)">
+                                <i class="bi bi-table me-1"></i>Simple
+                            </label>
+
+                            <input type="radio" class="btn-check" name="downloadOption" id="optionFull" autocomplete="off">
+                            <label class="btn btn-sm btn-outline-primary border-0 py-1 px-3 position-relative" for="optionFull" title="Incluye chat completo (Más lento)">
+                                <i class="bi bi-chat-text-fill me-1"></i>Completo
+                                <span class="position-absolute top-0 start-100 translate-middle p-1 bg-warning border border-light rounded-circle">
+                                    <span class="visually-hidden">Pesado</span>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="btn-group shadow-sm" role="group">
+                        <button class="btn btn-sm btn-success text-white" id="downloadCSV">
+                            <i class="bi bi-file-earmark-spreadsheet-fill me-1"></i>CSV
+                        </button>
+                        <button class="btn btn-sm btn-primary text-white" id="downloadXLSX">
+                            <i class="bi bi-file-earmark-excel-fill me-1"></i>Excel
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+            
+        </div>
+        <div class="card-body">
+            {# Filtros de columna activos: cada uno con su ✕ para sacarlo sin tener que
+               buscar el control en el encabezado de la tabla. #}
+            <div id="active-filters-bar" class="active-filters" style="display: none;">
+                <span class="af-label"><i class="bi bi-funnel-fill me-1"></i>Filtros de columna:</span>
+                <div id="active-filters-chips" class="d-flex flex-wrap gap-1"></div>
+                <button type="button" class="btn btn-link btn-sm p-0 ms-auto" id="btnLimpiarFiltrosCol">
+                    Limpiar todos
+                </button>
+            </div>
+
+            {# Resultado del último pedido de transcripción (encoladas / ya en cola / sin audio). #}
+            <div id="transcripcion-aviso" class="alert alert-info py-2 px-3 mb-2 small" style="display: none;"></div>
+
+            {# Transcribir en bloque: aparece al tildar filas que tienen audio conservado
+               pero no tienen transcripción. El pedido se encola (calidad.TranscripcionJobs)
+               y lo resuelve el scheduler; no bloquea la pantalla ni re-audita. #}
+            <div id="bulk-transcribir-bar" class="d-flex align-items-center gap-2 flex-wrap border rounded bg-light px-3 py-2 mb-2" style="display: none;">
+                <i class="bi bi-mic-fill text-primary"></i>
+                <span id="bulk-transcribir-texto" class="small fw-semibold"></span>
+                <button type="button" class="btn btn-sm btn-primary ms-auto" id="btnTranscribirSeleccion">
+                    <i class="bi bi-mic-fill me-1"></i>Transcribir seleccionadas
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnLimpiarSeleccion">
+                    Limpiar selección
+                </button>
+            </div>
+
+            {# Resumen del filtro de revisión: cuántos llamados trajo y de cuándo son.
+               Es la pregunta inmediata cuando el rango de fechas se ignoró. #}
+            <div id="revision-resumen-busqueda" style="display: none;"></div>
+
+            <div id="results-placeholder" class="text-center text-muted p-4" style="display: none;"></div>
+
+            <div id="results-table-container" class="table-responsive">
+                <table class="table table-striped table-hover table-sm align-middle">
+                    <thead id="results-table-head" class="table-light">
+                        </thead>
+                    <tbody id="results-table-body">
+                        </tbody>
+                </table>
+            </div>
+
+            {# Paginado: la tabla pinta solo la página pedida (el backend manda esa página
+               y el total), así el navegador no tiene que dibujar miles de filas. #}
+            <div id="results-pagination" class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-2" style="display: none;">
+                <span id="pagination-info" class="small text-muted"></span>
+                <div class="d-flex align-items-center gap-2">
+                    <label for="pageSizeSelect" class="small text-muted mb-0">Filas por página</label>
+                    <select id="pageSizeSelect" class="form-select form-select-sm" style="width: auto;">
+                        <option value="50">50</option>
+                        <option value="100" selected>100</option>
+                        <option value="250">250</option>
+                        <option value="500">500</option>
+                        <option value="0">Todas</option>
+                    </select>
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Paginación">
+                        <button type="button" class="btn btn-outline-secondary" id="pagPrimera" title="Primera página">
+                            <i class="bi bi-chevron-double-left"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" id="pagAnterior" title="Página anterior">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                        <span class="btn btn-outline-secondary disabled" id="pagIndicador">1 / 1</span>
+                        <button type="button" class="btn btn-outline-secondary" id="pagSiguiente" title="Página siguiente">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" id="pagUltima" title="Última página">
+                            <i class="bi bi-chevron-double-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<div class="modal fade" id="transcriptionModal" tabindex="-1" aria-labelledby="transcriptionModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-light">
+                <h5 class="modal-title" id="transcriptionModalLabel">
+                    <i class="bi bi-chat-text-fill text-primary me-2"></i>Detalle de la Interacción
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            {# Reproductor de audio: FUERA del .modal-body (que es el que scrollea), así
+               queda fijo mientras se recorre la transcripción, sin barras anidadas.
+               Solo visible si la interacción tiene audio conservado. #}
+            <div id="audio-player-container" class="px-3 py-2 border-bottom bg-white" style="display: none;">
+                <div class="audio-player-card">
+                    <audio id="audio-player" controls preload="metadata"></audio>
+                    <a id="audio-download-btn" class="btn btn-sm btn-outline-secondary" href="#"
+                       title="Descargar audio" download>
+                        <i class="bi bi-download"></i>
+                    </a>
+                </div>
+            </div>
+
+            <div class="modal-body">
+                <div id="modal-loading" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Cargando...</span>
+                    </div>
+                    <p class="mt-2 text-muted">Obteniendo transcripción...</p>
+                </div>
+
+                <div id="modal-error" class="alert alert-danger mx-3" style="display: none;"></div>
+
+                <div id="chat-container" class="d-flex flex-column p-3">
+                    </div>
+            </div>
+            <div class="modal-footer">
+                {# Solo con audio conservado y sin transcripción: encola el pedido, no espera. #}
+                <button type="button" class="btn btn-outline-primary" id="btnTranscribirModal" style="display: none;">
+                    <i class="bi bi-mic-fill me-1"></i>Transcribir este llamado
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# === Modal de revisión humana (Golden Set) ===================================
+   El revisor ve atributo por atributo lo que respondió la IA y marca si acertó.
+   Solo se guardan los atributos que TOCÓ: en una plantilla de 12 criterios,
+   obligar a confirmar los 12 haría que nadie revise nada. Lo que no se toca,
+   no se afirma. #}
+{# ================= Reauditar ================= #}
+{# Confirmación explícita: no es un refresh, es reemplazar una auditoría publicada.
+   Se muestra qué se va a hacer, qué NO se puede (sin audio) y, al terminar, qué
+   cambió — que es lo único que justifica haber gastado los tokens. #}
+<div class="modal fade" id="reauditarModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-arrow-repeat me-2"></i>Reauditar con el prompt vigente</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="reauditar-error" class="alert alert-danger" style="display:none;"></div>
+                <div id="reauditar-cuerpo"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                <button type="button" class="btn btn-warning" id="reauditar-confirmar">
+                    <span class="spinner-border spinner-border-sm me-1" style="display:none;"></span>
+                    <i class="bi bi-stack me-1"></i>Reauditar en Batch
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ================= Historial de corridas ================= #}
+<div class="modal fade" id="versionesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-clock-history me-2"></i>Historial de este llamado</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body"><div id="versiones-cuerpo"></div></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="revisionModal" tabindex="-1" aria-labelledby="revisionModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-light">
+                <h5 class="modal-title" id="revisionModalLabel">
+                    <i class="bi bi-clipboard-check text-success me-2"></i>Revisar la auditoría de la IA
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <div id="revision-context" class="px-3 py-2 border-bottom bg-white small text-muted"></div>
+
+            <div class="modal-body">
+                <div id="revision-loading" class="text-center py-5">
+                    <div class="spinner-border text-success" role="status">
+                        <span class="visually-hidden">Cargando...</span>
+                    </div>
+                    <p class="mt-2 text-muted">Cargando los atributos de la auditoría...</p>
+                </div>
+
+                <div id="revision-error" class="alert alert-danger" style="display: none;"></div>
+                <div id="revision-aviso" class="alert alert-warning py-2 small" style="display: none;"></div>
+
+                <div id="revision-atributos"></div>
+
+                <div class="mt-3">
+                    <label for="revision-comentario" class="form-label small fw-bold">
+                        Comentario general (opcional)
+                    </label>
+                    <textarea id="revision-comentario" class="form-control form-control-sm" rows="2"
+                              placeholder="Observaciones sobre este llamado o sobre cómo lo evaluó la IA."></textarea>
+                </div>
+            </div>
+
+            <div class="modal-footer justify-content-between">
+                <span id="revision-resumen" class="small text-muted"></span>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="revision-borrar" style="display: none;">
+                        <i class="bi bi-trash me-1"></i>Borrar mi revisión
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-success" id="revision-guardar">
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true" style="display: none;"></span>
+                        <i class="bi bi-check2-circle me-1"></i>Guardar revisión
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    {# Librerías Externas #}
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/es.js"></script> {# Locale español #}
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+
+    {# Script Principal #}
+    <script src="{{ url_for('static', filename='js/auditorias_realizadas.js') }}"></script>
+{% endblock %}

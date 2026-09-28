@@ -1,0 +1,159 @@
+{% extends "layout.html" %}
+
+{% block title %}Gestión de Candidatos - RRHH{% endblock %}
+
+{% block styles %}
+    {{ super() }}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/analizar_cv.css') }}">
+{% endblock %}
+
+{% block content %}
+<div id="analizar-cv-container" 
+     data-api-base-url="{{ FASTAPI_BASE_URL }}" 
+     data-api-token="{{ api_token }}">
+     
+    <div class="row justify-content-center">
+        <div class="col-md-12">
+            
+            <div class="card shadow-sm mb-4 border-success" id="quick-action-card">
+                <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-calendar-check me-2"></i>Configuración de Entrevista</h5>
+                    <small class="fw-light">Datos para agendamiento automático</small>
+                </div>
+                <div class="card-body bg-white">
+                    <div class="alert alert-light border-start border-success border-4 py-2 small text-muted">
+                        <i class="bi bi-info-circle-fill text-success me-1"></i>
+                        Al hacer clic en el botón <strong>Aceptar</strong> (<i class="bi bi-check-lg text-success"></i>) de la tabla inferior, se usarán estos datos para enviar la invitación y actualizar el Sheet de ingresos.
+                    </div>
+                    <form id="interview-config-form">
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label for="global-interview-date" class="form-label fw-bold small">Fecha Entrevista <span class="text-danger">*</span></label>
+                                <input type="date" class="form-control" id="global-interview-date" required>
+                            </div>
+                            <div class="col-md-2">
+                                <label for="global-interview-time" class="form-label fw-bold small">Horario <span class="text-danger">*</span></label>
+                                <input type="time" class="form-control" id="global-interview-time" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="global-interview-location" class="form-label fw-bold small">Lugar / Enlace <span class="text-danger">*</span></label>
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="bi bi-geo-alt"></i></span>
+                                    <input type="text" class="form-control" id="global-interview-location" placeholder="Ej: Av. Mitre 1234 / Zoom Link" required>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="global-interview-campaign" class="form-label fw-bold small">Campaña Asignada <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="global-interview-campaign" placeholder="Ej: Ventas Voltara" required>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card shadow-sm">
+                <div class="card-header d-flex justify-content-between align-items-center flex-wrap bg-light">
+                    <h5 class="mb-0 me-3"><i class="bi bi-table me-2"></i>Lista de Candidatos Activos</h5>
+                    
+                    <div class="d-flex align-items-center ms-auto gap-2">
+                        <div id="download-buttons" style="display: none;">
+                            <button class="btn btn-sm btn-outline-success" id="btn-download-xlsx" title="Descargar Excel">
+                                <i class="bi bi-file-earmark-excel"></i> Exportar
+                            </button>
+                        </div>
+                        <div class="vr mx-2"></div>
+                        <button class="btn btn-sm btn-secondary" id="refresh-history-button" title="Refrescar datos de la base">
+                            <i class="bi bi-arrow-clockwise"></i> Actualizar Tabla
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="card-body p-0">
+                    <div class="p-3 bg-light border-bottom" id="filters-container" style="display: none;">
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-2">
+                                <label class="form-label fw-bold small text-muted mb-1">Desde (Marca temporal)</label>
+                                <input type="date" id="filter-fecha-desde" class="form-control form-control-sm">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label fw-bold small text-muted mb-1">Hasta (Marca temporal)</label>
+                                <input type="date" id="filter-fecha-hasta" class="form-control form-control-sm">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold small text-muted mb-1">Sede Preferida</label>
+                                <select id="filter-sede" class="form-select form-select-sm">
+                                    <option value="">-- Todas las sedes --</option>
+                                    <option value="SEDE NORTE">Sede Norte</option>
+                                    <option value="SEDE SUR">Sede Sur</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold small text-muted mb-1">Turno Preferido</label>
+                                <select id="filter-turno" class="form-select form-select-sm">
+                                    <option value="">-- Todos los turnos --</option>
+                                    <option value="MAÑANA">Turno Mañana</option>
+                                    <option value="TARDE">Turno Tarde</option>
+                                    <option value="COMPLETA">Disponibilidad Completa</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2 d-flex gap-1">
+                                <button id="btn-apply-filters" class="btn btn-sm btn-primary w-100">
+                                    <i class="bi bi-funnel-fill"></i> Filtrar
+                                </button>
+                                <button id="btn-clear-filters" class="btn btn-sm btn-outline-secondary" title="Limpiar filtros">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="history-placeholder" class="text-center text-muted p-5">
+                        <div class="spinner-border text-secondary mb-2" role="status"></div>
+                        <p>Leyendo datos de la base de datos...</p>
+                    </div>
+                    
+                    <div id="history-table-container" class="table-responsive" style="display: none; max-height: 600px;">
+                        <table class="table table-striped table-hover align-middle mb-0" id="candidates-table">
+                            <thead class="table-light sticky-top shadow-sm" style="z-index: 2;">
+                                <tr>
+                                    <th>Candidato</th>
+                                    <th>DNI</th>
+                                    <th>Marca Temporal</th>
+                                    <th>Contacto</th>
+                                    <th>Sede Preferida</th>
+                                    <th>Turno Preferido</th>
+                                    <th>Estado</th>
+                                    <th class="text-end" style="min-width: 160px;">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modalCandidateDetails" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="candidate-modal-title">Detalles del Candidato</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="candidate-modal-body"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="{{ url_for('static', filename='js/analizar_cv.js') }}"></script>
+{% endblock %}

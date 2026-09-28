@@ -1,0 +1,65 @@
+{% extends "layout.html" %}
+
+{% block title %}Informador Dinámico{% endblock %}
+
+{% block styles %}
+    {{ super() }}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/informador.css') }}">
+{% endblock %}
+
+{% block content %}
+<div id="informador-container"
+     data-todos-los-datos='{{ todos_los_datos | tojson | safe }}'
+     data-user-id="{{ user_id }}"
+
+    <div class="card shadow-sm">
+        <div class="card-header">
+            <h3 class="mb-0">Consulta de Información Dinámica</h3>
+        </div>
+        <div class="card-body">
+            <p class="card-text text-muted">Selecciona las opciones en orden para filtrar la información.</p>
+            
+            <div id="container-s1" class="mb-3 select-wrapper">
+                <label for="seccion1" class="form-label fw-bold">Sección 1</label>
+                <select class="form-select" id="seccion1"></select>
+                <div class="spinner-border text-primary" role="status" style="display: none;"></div>
+            </div>
+    
+            <div id="container-s2" class="mb-3 select-wrapper" style="display: none;">
+                <label for="seccion2" class="form-label fw-bold">Sección 2</label>
+                <select class="form-select" id="seccion2"></select>
+                <div class="spinner-border text-primary" role="status" style="display: none;"></div>
+            </div>
+    
+            <div id="container-s3" class="mb-3 select-wrapper" style="display: none;">
+                <label for="seccion3" class="form-label fw-bold">Sección 3</label>
+                <select class="form-select" id="seccion3"></select>
+                <div class="spinner-border text-primary" role="status" style="display: none;"></div>
+            </div>
+    
+            <div id="container-s4" class="mb-3 select-wrapper" style="display: none;">
+                <label for="seccion4" class="form-label fw-bold">Sección 4</label>
+                <select class="form-select" id="seccion4"></select>
+                <div class="spinner-border text-primary" role="status" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="resultado-container" class="card shadow-sm mt-4" style="display: none;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Información Encontrada</h5>
+            <button id="copy-result-button" class="btn btn-sm btn-outline-secondary" title="Copiar al portapapeles">
+                <i class="bi bi-clipboard"></i> Copiar
+            </button>
+        </div>
+        <div class="card-body">
+            <div id="resultado" style="white-space: pre-wrap; word-wrap: break-word;"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="{{ url_for('static', filename='js/informador.js') }}"></script>
+{% endblock %}

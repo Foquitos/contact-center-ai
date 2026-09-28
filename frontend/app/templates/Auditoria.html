@@ -1,0 +1,455 @@
+{% extends "layout.html" %}
+
+{% block title %}Auditoría Inteligente - Acme Chat{% endblock %}
+
+{% block styles %}
+    {{ super() }}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/themes/default/style.min.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/auditoria.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <form method="POST" action="{{ url_for('audit.Auditar') }}" id="auditForm" enctype="multipart/form-data"
+          data-empresa-data-map='{{ empresa_data_map | tojson | safe }}'>
+        
+        {# El modo por defecto es Batch: sale la mitad que el sincrónico y no obliga
+           a nadie a quedarse esperando en la pantalla. El sincrónico ("Auditar ahora")
+           necesita el permiso audit:sync y el backend lo revalida (rbac.exigir_modo_sincronico). #}
+        <input type="hidden" name="batch" id="batchInput" value="true">
+        <input type="hidden" id="puedeSincronico" value="{{ 'true' if puede_sincronico else 'false' }}">
+
+        <div class="row justify-content-center">
+            <div class="col-xl-11">
+                
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header-custom">
+                        <h2 class="h4 mb-1"><i class="bi bi-robot me-2"></i>Nueva Auditoría</h2>
+                        <p class="mb-0 opacity-75 small">Configura los parámetros para que la IA analice las interacciones.</p>
+                    </div>
+
+                    <div class="card-body p-4">
+
+                        <div id="status-area" class="alert alert-info hidden rounded-3 border-0 shadow-sm mb-4">
+                            
+                            <div class="d-flex align-items-center">
+                                <div class="spinner-border text-primary me-3" role="status" style="width: 1.5rem; height: 1.5rem;"></div>
+                                <div>
+                                    <h6 class="alert-heading mb-1 fw-bold" id="status-heading">Procesando</h6>
+                                    <span id="status-message" class="small">Iniciando auditoría...</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="date-error-message" class="alert alert-danger hidden rounded-3"></div>
+                        <div id="checkbox-error-message" class="alert alert-danger hidden rounded-3"></div>
+
+                        <!-- 1. PERÍODO A AUDITAR (OBLIGATORIO Y PRIMER PASO) -->
+                        <div id="date-filter-section" class="p-3 mb-4 rounded-3 border bg-light bg-opacity-75 shadow-sm">
+                            <div class="d-flex flex-wrap justify-content-between align-items-center mb-2">
+                                <div class="section-title mb-0 text-primary fw-bold">
+                                    <i class="bi bi-calendar-range me-2"></i>1. Período a Auditar <span class="badge bg-danger ms-1 text-white small">Obligatorio</span>
+                                </div>
+                                <div class="btn-group btn-group-sm mt-1 mt-md-0" role="group" id="datePresets">
+                                    <button type="button" class="btn btn-outline-secondary" data-preset="hoy">Hoy</button>
+                                    <button type="button" class="btn btn-outline-secondary" data-preset="ayer">Ayer</button>
+                                    <button type="button" class="btn btn-outline-secondary active" data-preset="7d">Últimos 7 días</button>
+                                    <button type="button" class="btn btn-outline-secondary" data-preset="mes">Mes actual</button>
+                                </div>
+                            </div>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <div class="form-floating">
+                                        <input type="text" class="form-control flatpickr-input bg-white" id="Fecha_desde" name="Fecha_desde" placeholder="Fecha Desde" required readonly>
+                                        <label for="Fecha_desde"><i class="bi bi-calendar-date me-1"></i>Fecha Desde *</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating">
+                                        <input type="text" class="form-control flatpickr-input bg-white" id="Fecha_hasta" name="Fecha_hasta" placeholder="Fecha Hasta" required readonly>
+                                        <label for="Fecha_hasta"><i class="bi bi-calendar-check me-1"></i>Fecha Hasta * (Por defecto: Hoy)</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-4">
+                            
+                            <div class="col-lg-4 border-end-lg">
+                                <div class="section-title"><i class="bi bi-gear-wide-connected"></i> Configuración</div>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label text-muted small fw-bold">EMPRESA</label>
+                                    <select class="form-select form-select-lg" id="empresaSelectAuditoria" name="empresa" required>
+                                        <option value="" selected disabled>Seleccionar...</option>
+                                        {# empresas_data ya viene acotado a las empresas del usuario
+                                           (Plantillas_prompts.empresas_disponibles, permisos
+                                           template:<empresa>). NO agregar opciones a mano acá: la
+                                           "Carga Manual (CSV)" estaba hardcodeada y se la ofrecía a
+                                           todos, tuvieran o no permiso sobre la empresa CSV. #}
+                                        {% for empresa_id, empresa_nombre in empresas_data.items() | sort(attribute='1') %}
+                                            <option value="{{ empresa_id }}">{{ empresa_nombre }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label text-muted small fw-bold">CAMPAÑA</label>
+                                    <select class="form-select" id="campanaAuditoriaSelect" name="campana" required disabled>
+                                        <option value="" selected disabled>-- Esperando Empresa --</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="form-label text-muted small fw-bold">PLANTILLA DE EVALUACIÓN</label>
+                                    <select class="form-select" id="plantillaSelect" name="plantilla_id" required disabled>
+                                        <option value="" selected disabled>-- Esperando Campaña --</option>
+                                    </select>
+                                    <div class="form-text small">Define qué aspectos evaluará la IA.</div>
+                                </div>
+
+                                <div class="section-title mt-5"><i class="bi bi-bullseye"></i> Objetivo</div>
+                                <div class="form-floating mb-2">
+                                    <input type="number" class="form-control font-monospace fw-bold text-primary" id="cantidad" name="cantidad" value="1" min="1" required placeholder="1">
+                                    <label for="cantidad">Cantidad de Auditorías</label>
+                                </div>
+
+                                {# Cupo mensual de la campaña (app/cuotas.py). Se completa por JS
+                                   al elegir campaña y queda oculto para los exentos (Calidad /
+                                   super admin) y para las campañas sin cupo cargado. #}
+                                <div id="cupoAviso" class="alert py-2 px-3 small mb-3 hidden"></div>
+
+                                {# Caché de contexto (AuditorIA/cache_plantillas.py). El bloque fijo
+                                   de la plantilla se manda UNA vez por corrida en vez de repetirse
+                                   en cada auditoría, y se cobra ~10 veces más barato. Como el costo
+                                   de tenerlo es fijo y el ahorro crece con cada interacción, el
+                                   aviso dice cuántas hacen falta para que se active y cuánto se
+                                   ahorra con las que se pidieron. Lo completa el JS al elegir
+                                   plantilla y al cambiar la cantidad. #}
+                                <div id="cacheAviso" class="alert alert-success py-2 px-3 small mb-3 hidden"></div>
+
+                                <div class="bg-light p-3 rounded-3 mb-3">
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" name="calidad" id="tipoCalidad" value="true" checked>
+                                        <label class="form-check-label" for="tipoCalidad">Análisis de Calidad</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" name="transcribir" id="tipoTranscribir" value="true">
+                                        <label class="form-check-label text-muted" for="tipoTranscribir">Transcripción</label>
+                                    </div>
+                                    
+                                    <div class="form-check form-switch mt-2 border-top pt-2">
+                                        <input class="form-check-input" type="checkbox" name="reauditar" id="tipoReauditar" value="true">
+                                        <label class="form-check-label text-muted" for="tipoReauditar" title="Ignora el filtro de interacciones ya evaluadas previamente">
+                                            Reauditar interacciones
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="bg-info bg-opacity-10 p-3 rounded-3 mb-3 hidden" id="container-modos-especiales">
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" id="por_operador" name="por_operador" value="true">
+                                        <label class="form-check-label fw-bold text-info-emphasis" for="por_operador">Auditar por Operador</label>
+                                    </div>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="por_tipificacion" name="por_tipificacion" value="true">
+                                        <label class="form-check-label fw-bold text-info-emphasis" for="por_tipificacion">Auditar por Tipificación</label>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <div class="col-lg-8">
+                                
+                                <fieldset id="csv-fields" class="hidden mb-4">
+                                    <div class="section-title text-danger"><i class="bi bi-upload"></i> <span id="upload-fields-title">Archivos Requeridos</span></div>
+                                    <div class="p-4 border border-2 border-dashed rounded-3 text-center bg-light">
+                                        <i class="bi bi-file-earmark-music display-4 text-muted"></i>
+                                        <div class="mt-3">
+                                            <label for="carpeta_audios" class="form-label fw-bold" id="carpeta_audios_label">Sube tus audios (.wav)</label>
+                                            <input type="file" class="form-control" id="carpeta_audios" name="carpeta_audios" multiple accept=".wav,.mp3,.ogg,.opus,.m4a">
+                                        </div>
+                                    </div>
+                                     <div class="row mt-3 g-2">
+                                        <div class="col-md-6">
+                                            <label for="ucid_file" class="form-label small mb-1" id="ucid_file_label">Archivo UCID (.csv)</label>
+                                            <input type="file" class="form-control form-control-sm" id="ucid_file" name="ucid_file" accept=".csv" title="Archivo UCID">
+                                        </div>
+                                        <div class="col-md-6" id="csv-only-field">
+                                            <label for="saved_files_txt" class="form-label small mb-1">Info Audios (.txt)</label>
+                                            <input type="file" class="form-control form-control-sm" id="saved_files_txt" name="saved_files_txt" accept=".txt" title="Info Audios">
+                                        </div>
+                                    </div>
+                                </fieldset>
+
+                                <fieldset id="standard-fields">
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <div class="section-title mb-0"><i class="bi bi-funnel"></i> Criterios de Selección</div>
+                                        <button type="button" class="btn btn-link btn-sm text-decoration-none text-muted p-0" id="btnRestablecerFiltros" title="Volver los filtros a su estado inicial">
+                                            <i class="bi bi-arrow-counterclockwise me-1"></i>Restablecer filtros
+                                        </button>
+                                    </div>
+
+                                    <!-- Banner dinámico de audios disponibles en vivo -->
+                                    <div id="liveTotalAudiosBanner" class="alert alert-primary d-flex align-items-center justify-content-between p-3 rounded-3 mb-4 hidden">
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi bi-soundwave fs-3 text-primary me-3"></i>
+                                            <div>
+                                                <div class="fw-bold d-flex align-items-center flex-wrap gap-2">
+                                                    <span>Audios disponibles: <span class="badge bg-primary fs-6 ms-1" id="liveTotalCount">0</span></span>
+                                                    <span id="bannerPlantillaBadge" class="badge bg-warning text-dark border border-warning-subtle hidden"><i class="bi bi-info-circle me-1"></i>Seleccioná una plantilla</span>
+                                                </div>
+                                                <small class="text-muted" id="liveTotalSubtexto">Coinciden con los filtros seleccionados</small>
+                                            </div>
+                                        </div>
+                                        <div id="liveWarningZero" class="text-danger small fw-bold hidden">
+                                            <i class="bi bi-exclamation-octagon me-1"></i>No hay llamadas que coincidan con estos filtros
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-4">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <label class="form-label fw-bold small text-muted mb-0">TIPIFICACIONES Y CATEGORÍAS</label>
+                                            <span class="badge bg-light text-muted border" id="tipiTotalBadge">0 disponibles</span>
+                                        </div>
+                                        
+                                        <select class="form-select select2-multiple hidden" id="tipificacionSelectAuditoria" name="tipificacion" multiple="multiple" disabled>
+                                             <option value="" disabled>-- Selecciona --</option>
+                                        </select>
+                                        
+                                        <div id="tipificacionTreeContainer" class="tree-container-wrapper hidden">
+                                            <input type="text" id="treeSearch" class="tree-search-input" placeholder="🔍 Buscar categoría (ej. Ventas)...">
+                                            <div id="jstree_div"></div>
+                                            <div class="text-end border-top pt-1 mt-1">
+                                                <small class="text-muted fst-italic me-2" id="tree-counter">0 seleccionados</small>
+                                            </div>
+                                        </div>
+                                        
+                                        <div id="tree-hidden-inputs"></div>
+                                    </div>
+
+                                    <div class="duration-wrapper mb-4 p-3 bg-light rounded-3 border">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <label class="form-label fw-bold small text-muted mb-0">
+                                                <i class="bi bi-clock-history me-1"></i>DURACIÓN DE LLAMADA
+                                            </label>
+                                            <span class="badge bg-primary fs-6 rounded-pill" id="duration-values">60s (01:00) — 600s (10:00)</span>
+                                        </div>
+
+                                        <!-- Presets rápidos de duración -->
+                                        <div class="btn-group btn-group-sm w-100 mb-3" role="group" id="durationPresets">
+                                            <button type="button" class="btn btn-outline-secondary" data-min="0" data-max="1800">Todas</button>
+                                            <button type="button" class="btn btn-outline-secondary" data-min="0" data-max="120">Cortas (&lt; 2m)</button>
+                                            <button type="button" class="btn btn-outline-secondary" data-min="120" data-max="420">Medias (2 - 7m)</button>
+                                            <button type="button" class="btn btn-outline-secondary" data-min="420" data-max="1800">Largas (&gt; 7m)</button>
+                                        </div>
+
+                                        <!-- Inputs numéricos precisos -->
+                                        <div class="row g-2 align-items-center mb-3">
+                                            <div class="col-5">
+                                                <div class="input-group input-group-sm">
+                                                    <span class="input-group-text">Mín</span>
+                                                    <input type="number" class="form-control" id="duracion_min_input" min="0" max="1800" step="5" value="60">
+                                                    <span class="input-group-text text-muted small" id="duracion_min_fmt">01:00</span>
+                                                </div>
+                                            </div>
+                                            <div class="col-5">
+                                                <div class="input-group input-group-sm">
+                                                    <span class="input-group-text">Máx</span>
+                                                    <input type="number" class="form-control" id="duracion_max_input" min="0" max="1800" step="5" value="600">
+                                                    <span class="input-group-text text-muted small" id="duracion_max_fmt">10:00</span>
+                                                </div>
+                                            </div>
+                                            <div class="col-2 text-end">
+                                                <div class="form-check form-check-inline small mb-0">
+                                                    <input class="form-check-input" type="checkbox" id="checkSinLimiteMax">
+                                                    <label class="form-check-label small text-muted" for="checkSinLimiteMax" title="Sin límite superior de duración">Sin tope</label>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div id="duration-slider" class="my-2"></div>
+                                        <input type="hidden" id="duracion_min" name="duracion_min" value="60">
+                                        <input type="hidden" id="duracion_max" name="duracion_max" value="600">
+                                    </div>
+
+                                    <div class="section-title mt-4"><i class="bi bi-sliders2"></i> Filtros Específicos (IDs, Agentes, Sentido)</div>
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold text-muted">SENTIDO</label>
+                                        <div>
+                                            <div class="btn-group w-100" role="group">
+                                                <input type="checkbox" class="btn-check" name="sentido" id="sentidoEntrante" value="Entrante" autocomplete="off">
+                                                <label class="btn btn-outline-secondary btn-sm" for="sentidoEntrante">
+                                                    Entrante <span class="badge bg-light text-dark ms-1" id="countSentidoEntrante">0</span>
+                                                </label>
+                                                
+                                                <input type="checkbox" class="btn-check" name="sentido" id="sentidoSaliente" value="Saliente" autocomplete="off">
+                                                <label class="btn btn-outline-secondary btn-sm" for="sentidoSaliente">
+                                                    Saliente <span class="badge bg-light text-dark ms-1" id="countSentidoSaliente">0</span>
+                                                </label>
+
+                                                <input type="checkbox" class="btn-check" name="sentido" id="sentidoInterno" value="Interno" autocomplete="off">
+                                                <label class="btn btn-outline-secondary btn-sm" for="sentidoInterno">
+                                                    Interno <span class="badge bg-light text-dark ms-1" id="countSentidoInterno">0</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="row g-2 mb-4">
+                                        <div class="col-md-6">
+                                            <label class="small text-muted">ID Interacción</label>
+                                            <select class="form-select select2-tags" id="idInteraccion" name="idInteraccion" multiple="multiple"></select>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="small text-muted fw-bold d-flex justify-content-between align-items-center mb-1">
+                                                <span><i class="bi bi-person-badge me-1"></i>Operadores (Login ID)</span>
+                                                <span class="badge bg-secondary rounded-pill" id="operadoresDisponiblesBadge">0 disponibles</span>
+                                            </label>
+                                            <div class="d-flex gap-2">
+                                                <button type="button" class="btn btn-outline-primary w-100 d-flex justify-content-between align-items-center py-2" id="btnAbrirModalOperadores" disabled>
+                                                    <span><i class="bi bi-person-lines-fill me-2"></i><span id="btnOperadoresTexto">Seleccionar Operadores...</span></span>
+                                                    <span class="badge bg-primary rounded-pill ms-2" id="badgeOperadoresSeleccionados">0</span>
+                                                </button>
+                                                <button type="button" class="btn btn-outline-danger btn-sm hidden" id="btnLimpiarOperadores" title="Quitar todos los operadores seleccionados">
+                                                    <i class="bi bi-x-lg"></i>
+                                                </button>
+                                            </div>
+                                            <div id="operadoresChipsContainer" class="d-flex flex-wrap gap-1 mt-2"></div>
+                                            <select class="hidden" id="loginid" name="loginid" multiple="multiple"></select>
+                                        </div>
+                                        <div class="col-md-12">
+                                            <label class="small text-muted">Segmentos</label>
+                                            <select class="form-select select2-tags-numeric" id="Segmento" name="Segmento" multiple="multiple" disabled></select>
+                                        </div>
+                                        <div class="col-md-12">
+                                            <label class="small text-muted">Comentario</label>
+                                            <select class="form-select select2-tags" id="comentario" name="comentario" multiple="multiple"></select>
+                                            <div class="form-text small text-muted">Busca cada valor dentro del comentario del llamado (coincidencia parcial / LIKE). Varios valores = OR. Ej: patentes o DNIs de Vantix; en Benefix, lo que el cliente marcó en el IVR (tarjeta o número de cliente).</div>
+                                        </div>
+                                    </div>
+
+                                </fieldset>
+                            </div>
+                        </div> {# Ya no se elige formato de salida: toda auditoría se guarda en la
+                           base y se consulta/exporta desde "Auditorías Realizadas". El backend
+                           sigue recibiendo formato_salida='html' (ver routes/audit.py, que lo
+                           toma por defecto), que es justamente la rama que persiste los datos. #}
+                        <div class="border-top mt-4 pt-4 d-flex flex-wrap justify-content-end align-items-center bg-white sticky-bottom p-2" style="z-index: 10;">
+
+                            <div class="d-flex gap-2">
+                                <a href="{{ url_for('main.index') }}" class="btn btn-light text-muted border">Cancelar</a>
+                                {% if puede_sincronico %}
+                                {# Sincrónico: queda como acción secundaria (outline) a propósito. Antes era el
+                                   botón primario y se usaba por default aunque casi nunca haga falta el resultado
+                                   al instante. Solo lo ve quien tiene audit:sync. #}
+                                <button type="submit" class="btn btn-outline-secondary btn-action-lg" id="submitButton"
+                                        title="Resultado inmediato, pero cuesta el doble que el Batch. Usalo solo para pruebas o urgencias.">
+                                    <i class="bi bi-play-circle me-2"></i>Auditar ahora (x2 costo)
+                                </button>
+                                {% endif %}
+                                <button type="submit" class="btn btn-primary btn-action-lg shadow" id="batchButton">
+                                    <i class="bi bi-stack me-2"></i>ENVIAR A LA COLA (BATCH)
+                                </button>
+                            </div>
+                        </div>
+
+                    </div> </div> <div id="csv-results-list" class="list-group shadow-sm hidden"></div>
+
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- MODAL: SELECCIONAR OPERADORES (CON BUSCADOR, SUPERVISOR Y CONTEO DE AUDIOS) -->
+<div class="modal fade" id="modalOperadores" tabindex="-1" aria-labelledby="modalOperadoresLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content shadow">
+            <div class="modal-header bg-light py-3">
+                <div>
+                    <h5 class="modal-title fw-bold" id="modalOperadoresLabel">
+                        <i class="bi bi-people-fill text-primary me-2"></i>Seleccionar Operadores
+                    </h5>
+                    <small class="text-muted" id="modalOperadoresSubtitulo">Operadores con llamadas disponibles en el período seleccionado</small>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body p-3">
+                <!-- Barra de filtros del modal -->
+                <div class="row g-2 mb-3">
+                    <div class="col-md-7">
+                        <div class="input-group">
+                            <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control" id="modalOperadorBuscar" placeholder="Buscar por nombre, legajo, login o supervisor...">
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <select class="form-select" id="modalFiltroSupervisor">
+                            <option value="">Todos los supervisores</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Acciones rápidas y contador -->
+                <div class="d-flex justify-content-between align-items-center mb-2 px-1">
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-secondary" id="btnModalSeleccionarTodos">Seleccionar visibles</button>
+                        <button type="button" class="btn btn-outline-secondary" id="btnModalDeseleccionarTodos">Deseleccionar todos</button>
+                    </div>
+                    <small class="text-muted fw-bold" id="modalOperadoresContadorFilas">0 operadores encontrados</small>
+                </div>
+
+                <!-- Tabla de Operadores -->
+                <div class="table-responsive border rounded-3" style="max-height: 480px;">
+                    <table class="table table-hover align-middle mb-0" id="tablaModalOperadores">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th style="width: 40px;" class="text-center">
+                                    <input class="form-check-input" type="checkbox" id="checkModalSelectAllRows">
+                                </th>
+                                <th>Operador / Agente</th>
+                                <th>Supervisor / Equipo</th>
+                                <th class="text-end pe-3">Audios</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbodyModalOperadores">
+                            <tr>
+                                <td colspan="4" class="text-center py-4 text-muted">
+                                    <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                                    Cargando operadores...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer bg-light py-2 d-flex justify-content-between">
+                <div>
+                    <span class="fw-bold" id="modalResumenSeleccionados">0 operadores seleccionados</span>
+                    <span class="text-muted ms-2" id="modalResumenAudios">(0 audios)</span>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" id="btnModalAplicarOperadores">
+                        <i class="bi bi-check-lg me-1"></i>Aplicar Selección
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/es.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/jstree.min.js"></script>
+    
+    <script src="{{ url_for('static', filename='js/auditoria.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Coral, el asistente de ayuda">
+  <title>Coral</title>
+  <!--
+    Mascota del asistente de ayuda (ver templates/partials/asistente_manual.html).
+    Versión de color fijo, para usarla con <img> sobre fondo claro. La versión que
+    va adentro del botón flotante es la del <symbol id="coral-pez">, que pinta el
+    cuerpo con currentColor para poder ir sobre el azul del botón.
+
+    El ojo es un calado (fill-rule="evenodd"): deja ver el fondo, así funciona igual
+    sobre claro que sobre oscuro sin tener dos versiones del dibujo.
+  -->
+  <path fill="#00a8cc" d="M20 36 L4 22 Q9 36 4 50 Z"/>
+  <path fill="#00a8cc" d="M30 23 L38 10 C40 17 44 21 47 24 C41 20 35 20 30 23 Z"/>
+  <path fill="#00a8cc" d="M33 50 L36 57 C39 55 42 52 44 50 C40 52 36 52 33 50 Z"/>
+  <path fill="#003366" fill-rule="evenodd" d="M18 36 C18 27 26 21 37 21 C49 21 58 28 58 36 C58 44 49 51 37 51 C26 51 18 45 18 36 Z
+                                              M46 26.6 a4.4 4.4 0 1 0 0 8.8 a4.4 4.4 0 1 0 0 -8.8 Z"/>
+  <circle fill="#003366" cx="47" cy="30.4" r="1.7"/>
+  <circle fill="#00a8cc" cx="60.5" cy="26" r="1.5"/>
+  <circle fill="#00a8cc" cx="56" cy="14" r="3"/>
+</svg>

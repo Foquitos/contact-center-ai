@@ -1,0 +1,211 @@
+{% extends "layout.html" %}
+
+{% block title %}Gestionar Roles{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4 text-center">Administración de Roles del Sistema</h2>
+
+    <div class="row">
+        {% if puede_gestionar %}
+        <div class="col-md-5">
+            <div class="card shadow-sm border-{{ 'warning' if role_to_edit else 'primary' }}">
+                <div class="card-header {{ 'bg-warning text-dark' if role_to_edit else 'bg-primary text-white' }}">
+                    <h5 class="mb-0">
+                        {% if role_to_edit %}
+                            <i class="bi bi-pencil-square"></i> Editando Rol: {{ role_to_edit.name }}
+                        {% else %}
+                            <i class="bi bi-shield-plus"></i> Crear Nuevo Rol
+                        {% endif %}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('admin.manage_roles') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+                        {% if role_to_edit %}
+                            <input type="hidden" name="role_id" value="{{ role_to_edit.id }}">
+                        {% endif %}
+
+                        <div class="mb-3">
+                            <label class="form-label">Nombre del Rol</label>
+                            <input type="text" class="form-control" name="name"
+                                   placeholder="Ej: Auditor Junior" required
+                                   value="{{ role_to_edit.name if role_to_edit else '' }}">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Descripción</label>
+                            <textarea class="form-control" name="description" rows="2">{{ role_to_edit.description if role_to_edit else '' }}</textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Rol Padre (opcional)</label>
+                            <select class="form-select" name="parent_role_id">
+                                <option value="">-- Sin padre --</option>
+                                {% for rol in roles %}
+                                    {% if not rol.is_super_admin and (not role_to_edit or rol.id != role_to_edit.id) %}
+                                    <option value="{{ rol.id }}"
+                                        {% if role_to_edit and role_to_edit.parent_role_id == rol.id %}selected{% endif %}>
+                                        {{ rol.name }}
+                                    </option>
+                                    {% endif %}
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">Este rol hereda automáticamente todos los permisos del padre.</div>
+                        </div>
+
+                        <label class="form-label fw-bold">Permisos:</label>
+                        <div class="list-group mb-3 border" style="max-height: 250px; overflow-y: auto;">
+                            {% for perm in permissions %}
+                                {% if role_to_edit and perm.id in role_to_edit.inherited_permissions_ids %}
+                                <label class="list-group-item bg-light">
+                                    <input class="form-check-input me-1" type="checkbox" checked disabled>
+                                    <strong>{{ perm.code }}</strong>
+                                    <span class="badge bg-info text-dark">heredado</span>
+                                    <div class="small text-muted ms-4">{{ perm.description }}</div>
+                                </label>
+                                {% else %}
+                                <label class="list-group-item">
+                                    <input class="form-check-input me-1" type="checkbox" name="permissions" value="{{ perm.id }}"
+                                        {% if role_to_edit and perm.id in role_to_edit.permissions_ids %}checked{% endif %}>
+                                    <strong>{{ perm.code }}</strong>
+                                    <div class="small text-muted ms-4">{{ perm.description }}</div>
+                                </label>
+                                {% endif %}
+                            {% else %}
+                            <div class="p-3 text-muted">No se pudieron cargar los permisos.</div>
+                            {% endfor %}
+                        </div>
+                        {% if not session.is_super_admin %}
+                        <div class="form-text mb-3">Solo ves los permisos que vos mismo posees: no podés crear roles más poderosos que el tuyo.</div>
+                        {% endif %}
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" name="action" value="save" class="btn {{ 'btn-warning' if role_to_edit else 'btn-success' }}">
+                                {{ 'Actualizar Rol' if role_to_edit else 'Guardar Rol' }}
+                            </button>
+
+                            {% if role_to_edit %}
+                                <a href="{{ url_for('admin.manage_roles') }}" class="btn btn-secondary">Cancelar Edición</a>
+                            {% endif %}
+                        </div>
+                    </form> </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="col-md-{{ '7' if puede_gestionar else '12' }}">
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h5 class="mb-0">Roles Existentes</h5>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-striped mb-0 align-middle">
+                        <thead>
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Padre</th>
+                                <th>Tipo</th>
+                                <th class="text-center">Usuarios</th>
+                                <th class="text-end">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for rol in roles %}
+                            <tr>
+                                <td>{{ rol.name }}</td>
+                                <td>
+                                    {% if rol.parent_name %}
+                                    <span class="badge bg-light text-dark border"><i class="bi bi-diagram-3"></i> {{ rol.parent_name }}</span>
+                                    {% else %}
+                                    <span class="text-muted small">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if rol.is_super_admin %}
+                                    <span class="badge bg-danger">Super Admin</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">Regular</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <a href="{{ url_for('admin.manage_roles', view_users=rol.id) }}" class="text-decoration-none"
+                                       title="Ver usuarios con este rol">
+                                        <span class="badge bg-primary">{{ rol.users_count }} <i class="bi bi-people"></i></span>
+                                    </a>
+                                </td>
+                                <td class="text-end">
+                                    {% if rol.simulable %}
+                                    <form method="POST" action="{{ url_for('admin.simular_rol', role_id=rol.id) }}" class="d-inline"
+                                          title="Ver el sistema con los permisos de este rol">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                            <i class="bi bi-eye"></i> Simular
+                                        </button>
+                                    </form>
+                                    {% endif %}
+                                    {% if puede_gestionar and rol.editable and not rol.is_super_admin %}
+                                    <a href="{{ url_for('admin.manage_roles', edit_id=rol.id) }}"
+                                       class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-pencil"></i> Editar
+                                    </a>
+                                    {% if rol.users_count == 0 %}
+                                    <form method="POST" action="{{ url_for('admin.manage_roles') }}" class="d-inline"
+                                          onsubmit="return confirm('¿Eliminar el rol {{ rol.name }}? Esta acción no se puede deshacer.');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                        <input type="hidden" name="role_id" value="{{ rol.id }}">
+                                        <button type="submit" name="action" value="delete" class="btn btn-sm btn-outline-danger">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                    {% endif %}
+                                    {% elif rol.is_super_admin %}
+                                    <span class="text-muted small fst-italic me-2">Protegido</span>
+                                    {% elif not rol.simulable %}
+                                    <span class="text-muted small fst-italic me-2" title="Tiene permisos que vos no posees">Sin acceso</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="5" class="text-center p-3">No hay roles definidos.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {% if role_users is not none %}
+            <div class="card shadow-sm mt-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-people"></i> Usuarios con el rol "{{ role_users_name }}"</h5>
+                    <a href="{{ url_for('admin.manage_roles') }}" class="btn btn-sm btn-outline-secondary">Cerrar</a>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-sm table-striped mb-0">
+                        <thead>
+                            <tr><th>Documento</th><th>Nombre</th><th>Campaña</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            {% for u in role_users %}
+                            <tr>
+                                <td>{{ u.documento }}</td>
+                                <td>{{ u.nombre }}</td>
+                                <td>{{ u.campana or '—' }}</td>
+                                <td class="text-end">
+                                    <a href="{{ url_for('admin.manage_users', edit_doc=u.documento) }}" class="btn btn-sm btn-link p-0">
+                                        Editar usuario
+                                    </a>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="4" class="text-center p-3 text-muted">Ningún usuario tiene este rol.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

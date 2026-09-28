@@ -1,0 +1,23 @@
+/* --- Estilos para el Informador Dinámico --- */
+
+.select-wrapper {
+    position: relative;
+}
+
+.select-wrapper .spinner-border {
+    position: absolute;
+    right: 40px; /* Ajusta la posición del spinner */
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.fade-in {
+    animation: fadeIn 0.5s;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}

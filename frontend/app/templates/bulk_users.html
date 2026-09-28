@@ -1,0 +1,60 @@
+{% extends "layout.html" %}
+
+{% block title %}Alta Masiva de Usuarios{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="text-center mb-4"><i class="bi bi-people-fill"></i> Alta Masiva de Usuarios</h2>
+
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">Generación por Lotes</h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-light border">
+                        <i class="bi bi-info-circle text-primary"></i>
+                        Esta herramienta permite activar múltiples usuarios a la vez.
+                        <br>
+                        <strong>Regla:</strong> La contraseña inicial será igual al número de documento.
+                        <br>
+                        <strong>Usuarios existentes:</strong> no se les cambia la contraseña; solo se les reemplaza el rol por el seleccionado (si no elegís rol, quedan sin cambios).
+                        <br>
+                        <strong>Log:</strong> cada alta queda registrada individualmente en el <a href="{{ url_for('admin.users_audit_log') }}">Log de Usuarios y Roles</a>.
+                    </div>
+
+                    <form method="POST" action="{{ url_for('admin.bulk_users') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/> 
+                        
+                        <div class="mb-3">
+                            <label for="roleSelect" class="form-label fw-bold">Rol a Asignar (Opcional)</label>
+                            <select class="form-select" id="roleSelect" name="role_id">
+                                <option value="">-- Sin rol específico (Usuario Básico) --</option>
+                                {% for role in roles %}
+                                    <option value="{{ role.id }}">{{ role.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="docsArea" class="form-label fw-bold">Lista de Documentos</label>
+                            <textarea class="form-control" id="docsArea" name="documents_list" rows="8" 
+                                      placeholder="Pegue aquí los documentos (DNI).&#10;Puede separarlos por 'Enter', comas o espacios.&#10;&#10;Ejemplo:&#10;12345678&#10;87654321&#10;11223344" required></textarea>
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary btn-lg" onclick="return confirm('Se procesarán todos los usuarios listados. ¿Continuar?');">
+                                <i class="bi bi-rocket-takeoff"></i> Procesar Lista
+                            </button>
+                        </div>
+                    </form> </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="mt-3 text-center">
+        <a href="{{ url_for('admin.manage_users') }}" class="btn btn-outline-secondary">Volver a Gestión Individual</a>
+    </div>
+</div>
+{% endblock %}

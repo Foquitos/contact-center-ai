@@ -1,0 +1,37 @@
+# Qdrant: vector store en modo servidor para los chatbots RAG.
+#
+# Levantar:   docker compose -f docker-compose.qdrant.yml up -d
+# Healthcheck: curl http://127.0.0.1:6333/readyz
+#
+# Bind solo a localhost: backend, scheduler y frontend corren en el mismo host.
+# Si se define QDRANT_API_KEY en el .env del sistema, agregar acá:
+#   environment:
+#     QDRANT__SERVICE__API_KEY: "<la misma key>"
+#
+# Alternativa sin Docker (binario nativo + systemd):
+#   /etc/systemd/system/qdrant.service
+#     [Unit]
+#     Description=Qdrant vector database
+#     After=network.target
+#     [Service]
+#     ExecStart=/usr/local/bin/qdrant --config-path /etc/qdrant/config.yaml
+#     Restart=always
+#     [Install]
+#     WantedBy=multi-user.target
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.15.1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"   # REST
+      - "127.0.0.1:6334:6334"   # gRPC
+    volumes:
+      - /var/lib/qdrant:/qdrant/storage
+    # Cada colección abre un RocksDB por segmento: ~64 fds. Con el default de
+    # 1024 alcanza para ~15 colecciones (bot_{slug}_v{N} + cache_{slug} por bot)
+    # y a partir de ahí Qdrant no puede abrir colecciones nuevas: falla con
+    # "RocksDB open error: IO error ... Too many open files (os error 24)".
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535

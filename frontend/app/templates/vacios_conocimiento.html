@@ -1,0 +1,168 @@
+{% extends "layout.html" %}
+
+{% block title %}Vacíos de conocimiento{% endblock %}
+
+{% block styles %}
+    {{ super() }}
+    {# Reutiliza el sistema visual de las pantallas de consumo de IA #}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/uso_ia.css') }}">
+{% endblock %}
+
+{% block page_container %}container-wide{% endblock %}
+
+{% block content %}
+<div class="uso-ia-page py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            <h4 class="mb-0"><i class="bi bi-patch-question me-1"></i>Vacíos de conocimiento</h4>
+            <small class="text-muted">
+                Temas que los operadores consultaron y el chatbot no pudo responder con la documentación.
+            </small>
+        </div>
+        <small id="estado-proceso" class="text-muted"></small>
+    </div>
+
+    {# KPIs. "Consultas afectadas" es lo que da la dimensión real del problema:
+       no es "hay 12 temas", es "12 temas se comieron 340 consultas". #}
+    <div class="row g-2 mb-3" id="kpis">
+        <div class="col-6 col-lg-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body py-2">
+                    <div class="text-muted small">Para documentar</div>
+                    <div class="fs-4 fw-semibold" id="kpi-huecos">—</div>
+                    <div class="small text-muted">temas pendientes sin cobertura</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body py-2">
+                    <div class="text-muted small">Consultas afectadas</div>
+                    <div class="fs-4 fw-semibold" id="kpi-consultas">—</div>
+                    <div class="small text-muted">veces que un operador se quedó sin respuesta</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card shadow-sm h-100 border-warning-subtle">
+                <div class="card-body py-2">
+                    <div class="text-muted small">Ya estaba documentado</div>
+                    <div class="fs-4 fw-semibold text-warning" id="kpi-recuperacion">—</div>
+                    <div class="small text-muted">problema del buscador, no de la documentación</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body py-2">
+                    <div class="text-muted small">Sin analizar</div>
+                    <div class="fs-4 fw-semibold" id="kpi-sinprocesar">—</div>
+                    <div class="small text-muted">consultas en cola (se procesan solas)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card card-body mb-3 shadow-sm">
+        <div class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label mb-1">Chatbot</label>
+                <select id="f-slug" class="form-select form-select-sm">
+                    <option value="">Todos</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Estado</label>
+                <select id="f-estado" class="form-select form-select-sm">
+                    <option value="pendiente" selected>Pendientes</option>
+                    <option value="agregar">Marcados para agregar</option>
+                    <option value="no_corresponde">No corresponde</option>
+                    <option value="ya_documentado">Ya documentado</option>
+                    <option value="">Todos</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Tipo</label>
+                <select id="f-clasificacion" class="form-select form-select-sm">
+                    <option value="hueco" selected>Falta documentación</option>
+                    <option value="recuperacion">No lo encontró el buscador</option>
+                    <option value="generacion">Lo tenía y no lo usó</option>
+                    <option value="fuera_de_alcance">Fuera de alcance</option>
+                    <option value="">Todos</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Ordenar por</label>
+                <select id="f-orden" class="form-select form-select-sm">
+                    <option value="ocurrencias" selected>Más consultado</option>
+                    <option value="usuarios">Más operadores distintos</option>
+                    <option value="reciente">Más reciente</option>
+                    <option value="antiguo">Más antiguo</option>
+                </select>
+            </div>
+            <div class="col text-end">
+                <small id="estado-resultado" class="text-muted"></small>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Tema consultado</th>
+                        <th class="text-center">Consultas</th>
+                        <th class="text-center">Operadores</th>
+                        <th>Chatbot</th>
+                        <th>Última vez</th>
+                        <th class="text-end">Triage</th>
+                    </tr>
+                </thead>
+                <tbody id="tabla-vacios">
+                    <tr><td colspan="6" class="text-center text-muted py-4">Cargando…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{# Detalle: las consultas reales del tema + las acciones de triage #}
+<div class="modal fade" id="detalleModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-patch-question me-1"></i><span id="detalle-tema"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="detalle-aviso"></div>
+                <h6 class="text-muted">Cómo lo preguntaron los operadores</h6>
+                <div id="detalle-consultas" class="mb-3"></div>
+                <label class="form-label">Nota (opcional)</label>
+                <textarea id="detalle-notas" class="form-control" rows="2"
+                          placeholder="Por qué se decide esto, o dónde se documentó"></textarea>
+            </div>
+            <div class="modal-footer justify-content-between flex-wrap gap-2">
+                <small class="text-muted" id="detalle-meta"></small>
+                <div class="btn-group">
+                    <button class="btn btn-success btn-sm" data-estado="agregar">
+                        <i class="bi bi-plus-circle me-1"></i>Falta agregar
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" data-estado="no_corresponde">
+                        <i class="bi bi-slash-circle me-1"></i>No corresponde
+                    </button>
+                    <button class="btn btn-outline-warning btn-sm" data-estado="ya_documentado">
+                        <i class="bi bi-search me-1"></i>Ya está documentado
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="{{ url_for('static', filename='js/vacios_conocimiento.js') }}"></script>
+{% endblock %}

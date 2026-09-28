@@ -1,0 +1,857 @@
+{% extends "layout.html" %}
+
+{% block title %}Gestionar Chatbots{% endblock %}
+
+{% block page_container %}container-wide{% endblock %}
+
+{% block content %}
+<div>
+    <h2 class="mb-4 text-center"><i class="bi bi-robot"></i> Administración de Chatbots</h2>
+
+    <div class="row">
+        {# ============ COLUMNA IZQUIERDA: CREAR / EDITAR ============ #}
+        <div class="col-lg-5">
+            <div class="card shadow-sm border-{{ 'warning' if bot_to_edit else 'primary' }}">
+                <div class="card-header {{ 'bg-warning text-dark' if bot_to_edit else 'bg-primary text-white' }}">
+                    <h5 class="mb-0">
+                        {% if bot_to_edit %}
+                            <i class="bi bi-pencil-square"></i> Editando: {{ bot_to_edit.nombre }}
+                            <span class="badge bg-dark ms-2">{{ bot_to_edit.slug }}</span>
+                        {% else %}
+                            <i class="bi bi-plus-circle"></i> Crear Nuevo Chatbot
+                        {% endif %}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('chatbot_admin.manage_chatbots') }}" id="chatbotForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <input type="hidden" name="action" value="{{ 'update' if bot_to_edit else 'create' }}">
+                        {% if bot_to_edit %}
+                            <input type="hidden" name="chatbot_id" value="{{ bot_to_edit.id }}">
+                            {% if bot_to_edit.es_csv %}<input type="hidden" name="tiene_pcrcs" value="1">{% endif %}
+                        {% endif %}
+
+                        <div class="mb-3">
+                            <label class="form-label">Nombre</label>
+                            <input type="text" class="form-control" name="nombre" id="nombreInput" required
+                                   placeholder="Ej: CSV Fraudes"
+                                   value="{{ bot_to_edit.nombre if bot_to_edit else '' }}">
+                        </div>
+
+                        {% if not bot_to_edit %}
+                        <div class="mb-3">
+                            <label class="form-label">Slug <span class="text-muted small">(identificador; se autogenera del nombre)</span></label>
+                            <input type="text" class="form-control font-monospace" name="slug" id="slugInput"
+                                   pattern="[a-z0-9_]{2,50}" placeholder="csv_fraudes">
+                            <div class="form-text">El permiso del bot será <code>chatbot:&lt;slug&gt;</code> (o el compartido <code>chatbot:csv</code> si es del grupo CSV).</div>
+                        </div>
+                        {% endif %}
+
+                        <div class="mb-3">
+                            <label class="form-label">Descripción</label>
+                            <input type="text" class="form-control" name="descripcion"
+                                   value="{{ bot_to_edit.descripcion or '' if bot_to_edit else '' }}">
+                        </div>
+
+                        {% if not bot_to_edit %}
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" name="es_csv" id="esCsvCheck">
+                            <label class="form-check-label" for="esCsvCheck">
+                                Pertenece al <strong>grupo CSV</strong>
+                                <span class="text-muted small">(permiso compartido; el bot del operador se resuelve por su PCRC/skill)</span>
+                            </label>
+                        </div>
+                        {% endif %}
+
+                        {# --- PCRCs (solo grupo CSV) --- #}
+                        <div class="mb-3 {{ '' if (bot_to_edit and bot_to_edit.es_csv) else 'd-none' }}" id="pcrcSection">
+                            <label class="form-label fw-bold">PCRCs asignados <span class="text-muted small">(uno por línea; asignan el bot al skill del operador)</span></label>
+                            <textarea class="form-control font-monospace" name="pcrcs" rows="4"
+                                      placeholder="NO PREMIUM&#10;RECLAMOS NO PREMIUM">{{ bot_to_edit.pcrcs | join('\n') if bot_to_edit else '' }}</textarea>
+                        </div>
+
+                        {# --- System prompt (colapsable) --- #}
+                        <details class="mb-3" {{ 'open' if bot_to_edit else '' }}>
+                            <summary class="fw-bold mb-2" style="cursor: pointer;">System prompt (avanzado)</summary>
+                            <textarea class="form-control font-monospace small" name="system_prompt" rows="12"
+                                      {{ 'required' if not bot_to_edit else '' }}
+                                      placeholder="Instrucciones del asistente...">{{ bot_to_edit.system_prompt if bot_to_edit else default_prompt_template }}</textarea>
+                        </details>
+
+                        {% if not bot_to_edit %}
+                        <div class="alert alert-info small py-2 mb-3">
+                            El chatbot nace sin conocimiento. Después de crearlo, cargale los documentos
+                            desde <strong>“Documentos del conocimiento (RAG)”</strong> y reindexá.
+                        </div>
+                        {% endif %}
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn {{ 'btn-warning' if bot_to_edit else 'btn-success' }}">
+                                {{ 'Guardar Cambios' if bot_to_edit else 'Crear Chatbot' }}
+                            </button>
+                            {% if bot_to_edit %}
+                                <a href="{{ url_for('chatbot_admin.manage_chatbots') }}" class="btn btn-secondary">Cancelar Edición</a>
+                            {% endif %}
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        {# ============ COLUMNA DERECHA: LISTADO + JOBS ============ #}
+        <div class="col-lg-7">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Chatbots</h5>
+                    <span class="text-muted small">El índice nuevo se publica sin reiniciar nada (&le;1 min).</span>
+                </div>
+                <div class="card-body p-0 table-responsive">
+                    <table class="table table-striped table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Grupo</th>
+                                <th>Docs</th>
+                                <th>Índice</th>
+                                <th>Última indexación</th>
+                                <th class="text-end">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for bot in bots %}
+                            <tr class="{{ 'table-secondary' if not bot.activo }}" data-slug="{{ bot.slug }}">
+                                <td>
+                                    <strong>{{ bot.nombre }}</strong>
+                                    <div class="small text-muted font-monospace">{{ bot.slug }}</div>
+                                </td>
+                                <td>
+                                    {% if bot.es_csv %}
+                                        <span class="badge bg-info text-dark">CSV</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary font-monospace">{{ bot.permission_code }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {{ bot.docs_md_count or 0 }}
+                                    {% if bot.material_pendiente %}
+                                        <span class="badge bg-warning text-dark" title="Material cargado que todavía no se procesó con la IA">
+                                            <i class="bi bi-inbox"></i> {{ bot.material_pendiente }}
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td class="estado-indice">
+                                    {% if bot.job_pendiente %}
+                                        <span class="badge bg-warning text-dark">{{ 'indexando…' if bot.job_pendiente == 'running' else 'en cola' }}</span>
+                                    {% elif bot.index_status == 'ready' and bot.cambios_sin_indexar %}
+                                        {# El índice responde, pero con los documentos de antes: guardar ya no
+                                           encola el reindexado, se dispara a mano cuando la carga terminó. #}
+                                        <span class="badge bg-success">listo v{{ bot.index_version }}</span>
+                                        <span class="badge bg-warning text-dark" title="Hay documentos modificados después de la última indexación">
+                                            <i class="bi bi-exclamation-triangle"></i> cambios sin indexar
+                                        </span>
+                                    {% elif bot.index_status == 'ready' %}
+                                        <span class="badge bg-success">listo v{{ bot.index_version }}</span>
+                                    {% elif bot.index_status == 'failed' %}
+                                        <span class="badge bg-danger">falló</span>
+                                    {% elif bot.index_status == 'indexing' %}
+                                        <span class="badge bg-warning text-dark">indexando…</span>
+                                    {% elif bot.cambios_sin_indexar %}
+                                        <span class="badge bg-warning text-dark">sin indexar todavía</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">sin indexar</span>
+                                    {% endif %}
+                                </td>
+                                <td class="small">{{ bot.last_indexed_at.replace('T', ' ')[:16] if bot.last_indexed_at else '—' }}</td>
+                                <td class="text-end text-nowrap">
+                                    <a href="{{ url_for('chatbot_admin.manage_chatbots', edit_id=bot.id) }}"
+                                       class="btn btn-sm btn-outline-primary" title="Editar"><i class="bi bi-pencil"></i></a>
+                                    <form method="POST" class="d-inline" action="{{ url_for('chatbot_admin.manage_chatbots') }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                        <input type="hidden" name="action" value="reindex">
+                                        <input type="hidden" name="chatbot_id" value="{{ bot.id }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-success" title="Reindexar documentos"
+                                                {{ 'disabled' if bot.job_pendiente or not bot.docs_md_count }}>
+                                            <i class="bi bi-arrow-repeat"></i>
+                                        </button>
+                                    </form>
+                                    <form method="POST" class="d-inline" action="{{ url_for('chatbot_admin.manage_chatbots') }}"
+                                          onsubmit="return confirm('¿{{ 'Activar' if not bot.activo else 'Desactivar' }} el chatbot {{ bot.nombre }}?');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                        <input type="hidden" name="action" value="toggle_active">
+                                        <input type="hidden" name="chatbot_id" value="{{ bot.id }}">
+                                        <input type="hidden" name="activar" value="{{ '1' if not bot.activo else '0' }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-{{ 'success' if not bot.activo else 'danger' }}"
+                                                title="{{ 'Activar' if not bot.activo else 'Desactivar' }}">
+                                            <i class="bi bi-{{ 'play-fill' if not bot.activo else 'pause-fill' }}"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="6" class="text-center p-3">No hay chatbots definidos.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card shadow-sm">
+                <div class="card-header"><h6 class="mb-0">Últimos reindexados</h6></div>
+                <div class="card-body p-0 table-responsive">
+                    <table class="table table-sm mb-0" id="jobsTable">
+                        <thead>
+                            <tr><th>Bot</th><th>Estado</th><th>Inicio</th><th>Fin</th><th>Error</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for job in jobs %}
+                            <tr>
+                                <td class="font-monospace small">{{ job.chatbot_slug }}</td>
+                                <td>
+                                    {% if job.status == 'completed' %}<span class="badge bg-success">completado</span>
+                                    {% elif job.status == 'failed' %}<span class="badge bg-danger">falló</span>
+                                    {% elif job.status == 'running' %}<span class="badge bg-warning text-dark">corriendo</span>
+                                    {% else %}<span class="badge bg-secondary">pendiente</span>{% endif %}
+                                </td>
+                                <td class="small">{{ job.started_at.replace('T', ' ')[:19] if job.started_at else '—' }}</td>
+                                <td class="small">{{ job.finished_at.replace('T', ' ')[:19] if job.finished_at else '—' }}</td>
+                                {# Un job que espera cupo de Gemini deja una nota acá y se reintenta
+                                   solo: en rojo parecía un reindexado roto y no lo es. #}
+                                <td class="small {{ 'text-danger' if job.status == 'failed' else 'text-muted' }}"
+                                    style="max-width: 22rem;">{{ job.error or '' }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="5" class="text-center p-3 text-muted">Sin reindexados todavía.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ============ DOCUMENTOS (RAG) — asistente de IA (solo en edición) ============ #}
+    {% if bot_to_edit %}
+    <div class="row mt-2">
+        <div class="col-12">
+            {# El estado del índice viaja en data-*: la card lo necesita para el aviso de
+               "cambios sin indexar" y no hay endpoint JSON del bot (la tabla se renderiza acá). #}
+            <div class="card shadow-sm border-info" id="docsRagCard"
+                 data-chatbot-id="{{ bot_to_edit.id }}" data-chatbot-nombre="{{ bot_to_edit.nombre }}"
+                 data-cambios-sin-indexar="{{ '1' if bot_to_edit.cambios_sin_indexar else '' }}"
+                 data-index-version="{{ bot_to_edit.index_version or 0 }}"
+                 data-last-indexed="{{ bot_to_edit.last_indexed_at or '' }}"
+                 data-job-pendiente="{{ bot_to_edit.job_pendiente or '' }}"
+                 data-otros-bots='{{ bots | rejectattr("id", "equalto", bot_to_edit.id) | map(attribute="slug") | list | tojson }}'>
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-journal-richtext"></i> Documentos del conocimiento (RAG)</h5>
+                    <div class="text-nowrap">
+                        {# Cargar material NO llama a la IA. Procesarlo es una acción aparte,
+                           desde la bandeja, igual que el reindexado. #}
+                        <button type="button" class="btn btn-sm btn-light text-primary fw-semibold" id="btnSumarMaterialGlobal"
+                                title="Pegá o subí material; queda pendiente hasta que lo proceses">
+                            <i class="bi bi-inbox"></i> Sumar material
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">
+                        El circuito son tres pasos, cada uno con su botón:
+                        <strong>1)</strong> <em>Sumar material</em> (texto, PDF, Word, PowerPoint, Excel, imágenes) — se guarda tal
+                        cual, <strong>sin llamar a la IA</strong>; <strong>2)</strong> <em>Procesar con IA</em> cuando
+                        terminaste de cargar todo — una sola corrida convierte el material en markdown estructurado y
+                        verifica en varias pasadas que no falte información; <strong>3)</strong> <em>Reindexar</em>
+                        para que los cambios lleguen al chatbot. Cada corrida reescribe los documentos que toca, así
+                        que procesar todo junto sale mejor (y cuesta bastante menos) que hacerlo archivo por archivo.
+                    </p>
+
+                    {# --- Estado del índice: guardar ya NO reindexa; el aviso vive acá --- #}
+                    <div id="docsRagIndiceAviso" class="d-none"></div>
+
+                    {# --- Trabajo de la IA en curso: el progreso vive en la página y no en un
+                           modal, para poder seguir cargando material (o irse) mientras corre. --- #}
+                    <div id="docsRagTrabajoAviso" class="d-none"></div>
+
+                    {# --- Bandeja: material cargado que todavía no pasó por la IA --- #}
+                    <div id="docsRagMaterialWrap" class="card border-warning mb-3 d-none">
+                        <div class="card-header bg-warning-subtle d-flex justify-content-between align-items-center py-2">
+                            <span class="fw-bold small">
+                                <i class="bi bi-inbox"></i> Material pendiente de procesar
+                                (<span id="docsRagMaterialCount">0</span>)
+                            </span>
+                            <span class="text-nowrap">
+                                <button type="button" class="btn btn-sm btn-primary" id="btnProcesarMaterial">
+                                    <i class="bi bi-magic"></i> Procesar con IA
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-danger" id="btnVaciarMaterial"
+                                        title="Descartar todo el material sin procesarlo">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </span>
+                        </div>
+                        <div class="list-group list-group-flush small" id="docsRagMaterialList"></div>
+                    </div>
+
+                    {# Barra de selección: aparece al tildar documentos. Sirve para
+                       convertir VARIOS en una sola tabla (una cartera repartida en
+                       un documento por responsable es UNA tabla, no una por
+                       responsable). #}
+                    <div id="docsRagSeleccionBarra" class="alert alert-primary py-2 px-3 d-none
+                                d-flex justify-content-between align-items-center">
+                        <span class="small"><span id="docsRagSeleccionCount">0</span> documento(s) seleccionado(s)</span>
+                        <span class="text-nowrap">
+                            <button type="button" class="btn btn-sm btn-primary" id="btnConvertirSeleccion">
+                                <i class="bi bi-table"></i> Convertir en una tabla de datos
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="btnLimpiarSeleccion">
+                                Cancelar
+                            </button>
+                        </span>
+                    </div>
+
+                    <div id="docsRagList" class="list-group">
+                        <div class="text-center text-muted small p-3">Cargando documentos…</div>
+                    </div>
+
+                    {# --- Tablas de datos: conocimiento que NO es prosa ---------------
+                       Un listado de entidades con sus atributos (sucursales, carteras
+                       de clientes, códigos) no se busca por parecido de texto sino por
+                       el valor exacto de sus columnas. Por eso vive aparte de los
+                       documentos y no se indexa: el chatbot la consulta directo. --- #}
+                    <div id="docsRagTablasWrap" class="mt-4 d-none">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <h6 class="mb-0"><i class="bi bi-table"></i> Tablas de datos</h6>
+                            <span class="small text-muted">se consultan directo, sin reindexar</span>
+                        </div>
+                        <p class="text-muted small mb-2">
+                            Listados de entidades con sus atributos. El chatbot los busca por el
+                            <strong>valor exacto</strong> de las columnas clave, así que responde el dato justo
+                            en lugar de acercarse. Los detecta la IA sola cuando procesás material; también podés
+                            convertir un documento que ya esté cargado.
+                        </p>
+                        <div id="docsRagTablasList" class="list-group"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+{# ============ MODAL: filas de una tabla de datos ============ #}
+{# Verificar una carga de miles de filas sin tener que abrir la base. #}
+<div class="modal fade" id="tablaFilasModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-table"></i> <span id="tablaFilasTitulo"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group input-group-sm mb-2">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" class="form-control" id="tablaFilasBuscar"
+                           placeholder="Buscar por las columnas clave (razón social, número de cliente, nombre…)">
+                </div>
+                <div class="small text-muted mb-2" id="tablaFilasResumen"></div>
+                <div class="small text-muted mb-2">
+                    <i class="bi bi-pencil"></i> Editá una fila con el lápiz. Las filas corregidas
+                    a mano quedan marcadas: si después volvés a cargar la tabla entera desde el
+                    material, esas correcciones se pierden y la pantalla te avisa cuántas son.
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped align-middle small mb-0">
+                        <thead id="tablaFilasHead"></thead>
+                        <tbody id="tablaFilasBody"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <div class="btn-group btn-group-sm">
+                    <button type="button" class="btn btn-outline-secondary" id="tablaFilasAnterior">&laquo; Anterior</button>
+                    <button type="button" class="btn btn-outline-secondary" id="tablaFilasSiguiente">Siguiente &raquo;</button>
+                </div>
+                <div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="btnAgregarFila">
+                        <i class="bi bi-plus-lg"></i> Agregar fila
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ============ MODAL: compartir un documento con otros chatbots ============ #}
+<div class="modal fade" id="docCompartirModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Compartir documento</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted">
+                    Los chatbots que marques van a <strong>indexar este mismo documento</strong>, que se sigue
+                    editando acá. Sirve para que dos bots de la misma operación compartan conocimiento sin
+                    duplicarlo (duplicarlo hace que tarde o temprano queden distintos).
+                </p>
+                <div class="fw-bold small mb-1" id="docCompartirTitulo"></div>
+                <div id="docCompartirLista"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btnGuardarCompartir">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ============ MODAL: sumar material a la bandeja (NO llama a la IA) ============ #}
+{# Guardar material es un INSERT y nada más. Estaba junto al botón que disparaba a
+   Gemini y era demasiado fácil pagar una corrida entera por cada archivo que se subía. #}
+<div class="modal fade" id="docMaterialModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="docMaterialModalTitle">Sumar material</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-secondary py-2 small">
+                    <i class="bi bi-inbox"></i> Esto <strong>no llama a la IA</strong>: el material queda
+                    pendiente y lo procesás todo junto desde la bandeja cuando termines de cargarlo.
+                </div>
+                <div id="docMaterialDestinoAviso" class="alert alert-info py-2 small d-none"></div>
+
+                <label class="form-label fw-bold">Contenido</label>
+                <textarea class="form-control" id="docMaterialTexto" rows="6"
+                          placeholder="Pegá acá el texto sin formato tal cual lo tenés…"></textarea>
+                <div class="mt-2">
+                    <label class="form-label small mb-1">…o subí archivos (PDF, Word, PowerPoint, Excel, texto, imágenes)</label>
+                    <input type="file" class="form-control form-control-sm" id="docMaterialArchivos" multiple
+                           accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.csv,.md,image/png,image/jpeg,image/webp">
+                </div>
+                <div class="mt-2">
+                    <label class="form-label small mb-1">Aclaración para la IA <span class="text-muted">(opcional)</span></label>
+                    <input type="text" class="form-control form-control-sm" id="docMaterialNota" maxlength="300"
+                           placeholder="Ej: actualiza precios / nuevo procedimiento / dar de baja la sección X">
+                </div>
+
+                <div class="mt-3 p-2 border rounded bg-light">
+                    <div class="form-check form-switch mb-1">
+                        <input class="form-check-input" type="checkbox" id="docMaterialEsActualizacion">
+                        <label class="form-check-label fw-bold small text-dark" for="docMaterialEsActualizacion">
+                            <i class="bi bi-arrow-repeat text-primary"></i> Actualización / Reemplazo o Baja (modifica precios, procedimientos o elimina secciones)
+                        </label>
+                    </div>
+                    <div class="form-text small text-muted">
+                        <i class="bi bi-info-circle"></i> Activá este check si este material <strong>actualiza precios/valores</strong>, <strong>reemplaza un procedimiento anterior</strong> o <strong>solicita dar de baja/eliminar una sección</strong> (ej: indicando <em>«Dar de baja la sección X»</em>). La IA sobrescribirá o removerá lo anterior en lugar de conservarlo como duplicado.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btnGuardarMaterial">
+                    <i class="bi bi-inbox"></i> Sumar al material pendiente
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ============ MODAL: procesar el material pendiente con la IA ============ #}
+{# El único lugar del panel desde el que se le paga a Gemini. Por eso está separado,
+   dice cuánto material entra y hay que elegir explícitamente qué hacer con él. #}
+<div class="modal fade" id="docProcesarModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-magic"></i> Procesar material con IA</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning py-2 small" id="docProcesarResumen"></div>
+
+                <label class="form-label fw-bold small">¿Qué hacer con este material?</label>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="docProcesarModo" id="docProcesarIntegrar" value="merge" checked>
+                    <label class="form-check-label" for="docProcesarIntegrar">
+                        <strong>Integrar en la documentación existente</strong>
+                        <div class="text-muted small">La IA reparte cada bloque al documento que corresponde
+                        (puede tocar varios), deduplica y marca los conflictos en vez de decidir sola.</div>
+                    </label>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="radio" name="docProcesarModo" id="docProcesarCrear" value="formatear">
+                    <label class="form-check-label" for="docProcesarCrear">
+                        <strong>Crear documento(s) nuevo(s)</strong>
+                        <div class="text-muted small">Formatea el material desde cero, sin mirar lo que ya existe.</div>
+                    </label>
+                </div>
+
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="radio" name="docProcesarModo" id="docProcesarNuevaTabla" value="nueva_tabla">
+                    <label class="form-check-label" for="docProcesarNuevaTabla">
+                        <strong>Crear una nueva tabla de datos</strong>
+                        <div class="text-muted small">Ideal para planillas (Excel/CSV) o listados masivos (clientes, contactos, sucursales).
+                        La IA define las columnas de búsqueda y las filas se importan completas sin límite.</div>
+                    </label>
+                </div>
+
+                {# Tercer destino: una TABLA de datos ya cargada. Solo aparece si el bot
+                   tiene alguna; no tiene sentido ofrecerlo si no hay contra qué. #}
+                <div class="form-check mt-2 d-none" id="docProcesarTablaWrap">
+                    <input class="form-check-input" type="radio" name="docProcesarModo" id="docProcesarTabla" value="tabla">
+                    <label class="form-check-label" for="docProcesarTabla">
+                        <strong>Actualizar una tabla de datos</strong>
+                        <div class="text-muted small">Compara el material contra la tabla y te muestra qué
+                        cambiaría (altas, cambios y bajas) antes de tocar nada. El material tiene que ser una
+                        <strong>planilla (Excel/CSV)</strong> o una tabla pegada como texto.</div>
+                    </label>
+                </div>
+
+                {# Opciones de "actualizar tabla" #}
+                <div class="mt-3 ps-4 border-start d-none" id="docProcesarOpcionesTabla">
+                    <label class="form-label small mb-1">¿Qué tabla?</label>
+                    <select class="form-select form-select-sm mb-3" id="docProcesarTablaId"></select>
+
+                    <label class="form-label small mb-1 fw-bold">¿Qué es este material?</label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="docProcesarCarga"
+                               id="docProcesarIncremental" value="incremental" checked>
+                        <label class="form-check-label small" for="docProcesarIncremental">
+                            <strong>Novedades</strong> — solo trae altas y correcciones.
+                            <span class="text-muted">Nada se da de baja.</span>
+                        </label>
+                    </div>
+                    <div class="form-check mt-1">
+                        <input class="form-check-input" type="radio" name="docProcesarCarga"
+                               id="docProcesarReemplazo" value="reemplazo">
+                        <label class="form-check-label small" for="docProcesarReemplazo">
+                            <strong>La tabla completa</strong> — es el listado entero al día de hoy.
+                            <span class="text-muted">Lo que no venga en el material se da de baja.</span>
+                        </label>
+                    </div>
+                    <div class="form-text small mt-2">
+                        No hay una opción segura por omisión: sobre los mismos datos, las dos dan
+                        resultados opuestos. Igual vas a ver el detalle antes de que se aplique nada.
+                    </div>
+                </div>
+
+                {# Opciones de "integrar" #}
+                <div class="mt-3 ps-4 border-start" id="docProcesarOpcionesMerge">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="docProcesarPermitirCrear" checked>
+                        <label class="form-check-label small" for="docProcesarPermitirCrear">
+                            Permitir crear un documento nuevo si algo <strong>no encaja</strong> en ninguno
+                        </label>
+                    </div>
+                </div>
+
+                {# Opciones de "crear" #}
+                <div class="mt-3 ps-4 border-start d-none" id="docProcesarOpcionesFormatear">
+                    <label class="form-label small mb-1">Título sugerido <span class="text-muted">(opcional)</span></label>
+                    <input type="text" class="form-control form-control-sm mb-2" id="docProcesarTitulo"
+                           placeholder="Ej: Procedimiento de altas">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="docProcesarSeparar" checked>
+                        <label class="form-check-label small" for="docProcesarSeparar">
+                            Permitir que la IA <strong>separe el material en varios documentos</strong> si mezcla temas
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btnConfirmarProcesar">
+                    <i class="bi bi-magic"></i> Procesar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ============ MODAL: qué le haría el material a la tabla (diff) ============ #}
+{# Nada se aplica sin pasar por acá: una carga que borra 400 filas porque el archivo
+   vino cortado es indistinguible de una baja masiva legítima si no se mira antes. #}
+<div class="modal fade" id="tablaDiffModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-arrow-left-right"></i>
+                    Cambios sobre <span id="tablaDiffNombre"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div id="tablaDiffResumen" class="mb-3"></div>
+                <div id="tablaDiffNotas" class="mb-3"></div>
+
+                <ul class="nav nav-tabs mb-2" id="tablaDiffTabs">
+                    <li class="nav-item"><button type="button" class="nav-link active" data-bloque="altas">Altas</button></li>
+                    <li class="nav-item"><button type="button" class="nav-link" data-bloque="cambios">Cambios</button></li>
+                    <li class="nav-item"><button type="button" class="nav-link" data-bloque="bajas">Bajas</button></li>
+                </ul>
+                <div class="d-flex justify-content-end mb-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btnDiffTildarTodo">
+                        Marcar / desmarcar todo lo visible
+                    </button>
+                </div>
+                <div class="table-responsive" style="max-height: 50vh; overflow-y: auto;">
+                    <table class="table table-sm table-striped small align-middle mb-0">
+                        <thead id="tablaDiffHead"></thead>
+                        <tbody id="tablaDiffBody"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <div class="small text-muted" id="tablaDiffSeleccion"></div>
+                <div>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-success" id="btnAplicarDiff">
+                        <i class="bi bi-check2"></i> Aplicar lo marcado
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ============ MODAL: definición de una tabla de datos ============ #}
+{# Solo la DEFINICIÓN: cómo se encuentra la tabla y cómo hay que usarla. Las filas
+   se editan en el visor, que es donde se las ve. #}
+<div class="modal fade" id="tablaDefModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-sliders"></i> Definición de la tabla</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2">
+                    <div class="col-md-7">
+                        <label class="form-label small fw-bold mb-1">Nombre</label>
+                        <input type="text" class="form-control form-control-sm" id="tablaDefNombre">
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small fw-bold mb-1">Cómo responde</label>
+                        <select class="form-select form-select-sm" id="tablaDefModo">
+                            <option value="auto">Automático (según el tamaño)</option>
+                            <option value="completa">Siempre con la tabla entera</option>
+                            <option value="lookup">Siempre buscando la fila</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold mb-1">Para qué sirve</label>
+                        <textarea class="form-control form-control-sm" id="tablaDefDescripcion" rows="2"></textarea>
+                        <div class="form-text small">
+                            El chatbot la lee para decidir si una pregunta va a esta tabla. Al guardar se
+                            recalcula, así que conviene escribirla con las palabras que usa el operador.
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold mb-1">Palabras que llevan a esta tabla</label>
+                        <input type="text" class="form-control form-control-sm" id="tablaDefTerminos">
+                        <div class="form-text small">Separadas por coma. Sin verbos generales del negocio.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold mb-1">Regla de uso</label>
+                        <input type="text" class="form-control form-control-sm" id="tablaDefNota">
+                        <div class="form-text small">Viaja con los datos en cada respuesta.</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold mb-1">
+                            Columnas por las que el operador puede nombrar una fila
+                        </label>
+                        <div id="tablaDefColumnas" class="d-flex flex-wrap gap-3 border rounded p-2"></div>
+                        <div class="form-text small">
+                            Cambiarlas vuelve a calcular el texto de búsqueda de todas las filas.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btnGuardarTablaDef">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ============ MODAL: revisión de la propuesta / edición manual ============ #}
+<div class="modal fade" id="docRagModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable" style="max-width: min(1600px, 96vw);">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="docRagModalTitle">Nuevo documento</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                {# Este modal es SOLO revisión: la propuesta que devolvió la IA o la
+                   edición manual de un documento. La carga de material y el disparo del
+                   procesamiento viven en la card, en sus propios botones. #}
+                <div id="docRagResultado" class="d-none">
+                    <div id="docRagReporte" class="mb-3"></div>
+
+                    {# Pestañas: una por documento de la propuesta (multi-documento) #}
+                    <ul class="nav nav-tabs mb-2 d-none" id="docRagTabs"></ul>
+
+                    <div class="mb-2 d-none" id="docRagTituloDocWrap">
+                        <label class="form-label small fw-bold mb-1">Título de este documento</label>
+                        <input type="text" class="form-control form-control-sm" id="docRagTituloDoc">
+                    </div>
+
+                    {# --- Editor de una TABLA de datos de la propuesta -----------------
+                       Se muestra en lugar del par markdown/preview cuando la pestaña
+                       activa es una tabla. Lo que se edita acá es el ESQUEMA (cómo se
+                       la va a encontrar y cómo hay que usarla); las filas se muestran
+                       para revisar, pero salen de un parser y no se tocan a mano. --- #}
+                    <div id="docRagTablaEditor" class="d-none">
+                        <div class="alert alert-info py-2 small" id="docRagTablaMotivo"></div>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold mb-1">Nombre de la tabla</label>
+                                <input type="text" class="form-control form-control-sm" id="docRagTablaNombre">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold mb-1">
+                                    Cómo responde
+                                    <i class="bi bi-question-circle" title="Automático elige según el tamaño: una tabla chica entra entera en el prompt (permite filtrar y comparar filas); una grande se busca por sus columnas clave."></i>
+                                </label>
+                                <select class="form-select form-select-sm" id="docRagTablaModo">
+                                    <option value="auto">Automático (según el tamaño)</option>
+                                    <option value="completa">Siempre con la tabla entera</option>
+                                    <option value="lookup">Siempre buscando la fila</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small fw-bold mb-1">Para qué sirve</label>
+                                <textarea class="form-control form-control-sm" id="docRagTablaDescripcion" rows="2"
+                                          placeholder="Qué se puede averiguar con esta tabla y con qué dato se la consulta."></textarea>
+                                <div class="form-text small">
+                                    El chatbot la lee para decidir si una pregunta va a esta tabla. Escribila con las
+                                    palabras que usa el operador.
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold mb-1">Palabras que llevan a esta tabla</label>
+                                <input type="text" class="form-control form-control-sm" id="docRagTablaTerminos"
+                                       placeholder="sucursal, taller, base, mail de responsable">
+                                <div class="form-text small">
+                                    Separadas por coma. Evitá verbos generales del negocio: mandarían acá preguntas
+                                    de procedimiento.
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold mb-1">Regla de uso (opcional)</label>
+                                <input type="text" class="form-control form-control-sm" id="docRagTablaNota"
+                                       placeholder="Ej.: no informar estos teléfonos de forma proactiva.">
+                                <div class="form-text small">
+                                    Viaja siempre junto a los datos, en cada respuesta.
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small fw-bold mb-1">
+                                    Columnas por las que el operador puede nombrar una fila
+                                </label>
+                                <div id="docRagTablaColumnas" class="d-flex flex-wrap gap-3 border rounded p-2"></div>
+                                <div class="form-text small">
+                                    Marcá las que un operador escribiría para identificar una fila (una razón social,
+                                    un número de cliente, el nombre de la sucursal). Es sobre esas columnas que se busca.
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small fw-bold mb-1">
+                                    Filas <span class="text-muted fw-normal" id="docRagTablaFilasInfo"></span>
+                                </label>
+                                <div class="table-responsive border rounded" style="max-height: 40vh; overflow-y: auto;">
+                                    <table class="table table-sm table-striped small mb-0">
+                                        <thead id="docRagTablaHead"></thead>
+                                        <tbody id="docRagTablaBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-2" id="docRagDocEditor">
+                        <div class="col-lg-6 d-flex flex-column">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label fw-bold small mb-0">Markdown (editable a mano)</label>
+                                <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" id="btnSubirImagenDoc"
+                                            title="Subir e insertar imagen (también podés arrastrar una imagen o pegar con Ctrl+V)">
+                                        <i class="bi bi-camera"></i> Subir imagen
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" id="btnGaleriaImagenesDoc"
+                                            title="Ver galería de imágenes cargadas para este chatbot">
+                                        <i class="bi bi-images"></i> Galería
+                                    </button>
+                                </div>
+                            </div>
+                            <input type="file" id="inputSubirImagenDoc" class="d-none"
+                                   accept="image/png,image/jpeg,image/webp,image/gif">
+                            <textarea class="form-control font-monospace small flex-grow-1" id="docRagMarkdown"
+                                      style="height: 65vh; min-height: 24rem; resize: vertical;"></textarea>
+                        </div>
+                        <div class="col-lg-6 d-flex flex-column">
+                            <label class="form-label fw-bold small mb-1">Vista previa</label>
+                            <div id="docRagPreview" class="border rounded p-2 bg-body-tertiary flex-grow-1"
+                                 style="height: 65vh; min-height: 24rem; overflow-y: auto;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer justify-content-between">
+                {# El reindexado dejó de encolarse al guardar: una sesión de carga costaba
+                   media docena de reconstrucciones completas del índice (Benefix llegó a
+                   la versión 84). Ahora el bot queda marcado y se reindexa una vez, al final. #}
+                <div class="small text-muted">
+                    <i class="bi bi-info-circle"></i> Guardar <strong>no reindexa</strong>:
+                    el bot queda marcado con cambios sin indexar y reindexás una sola vez al terminar.
+                </div>
+                <div>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-success" id="btnGuardarDocRag" disabled>
+                        <i class="bi bi-save"></i> Guardar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ============ MODAL: Galería de imágenes del chatbot ============ #}
+<div class="modal fade" id="docImagenesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-images text-primary"></i> Galería de imágenes del chatbot</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <span class="small text-muted" id="docImagenesCount">0 imágenes</span>
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="btnSubirImagenGaleria">
+                        <i class="bi bi-upload"></i> Subir nueva imagen
+                    </button>
+                </div>
+                <div id="docImagenesVacio" class="text-center text-muted py-4 d-none">
+                    <i class="bi bi-image fs-1 opacity-50"></i>
+                    <p class="small mt-2 mb-0">No hay imágenes cargadas para este chatbot.</p>
+                    <p class="small text-muted">Podés subir capturas de pantalla de tus sistemas para ilustrar los procedimientos.</p>
+                </div>
+                <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 g-3" id="docImagenesGrid"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="{{ url_for('static', filename='js/manage_chatbots.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/manage_chatbots_docs.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,301 @@
+{% extends "layout.html" %}
+
+{# puede_costos = ve el Resumen con gasto/tokens (uso_ia.chatbot). Calidad, con
+   solo chatbot.solicitudes, ve únicamente la pestaña Solicitudes (sin costos). #}
+{% set puede_costos = session.get('is_super_admin') or 'uso_ia.chatbot' in session.get('permissions', []) %}
+
+{% block title %}{{ 'Gastos Chatbot (IA)' if puede_costos else 'Consultas al Chatbot' }}{% endblock %}
+
+{% block styles %}
+    {{ super() }}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/uso_ia.css') }}">
+{% endblock %}
+
+{% block page_container %}container-wide{% endblock %}
+
+{% block content %}
+<div class="uso-ia-page py-3" data-puede-costos="{{ '1' if puede_costos else '0' }}">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            {% if puede_costos %}
+            <h4 class="mb-0"><i class="bi bi-chat-dots me-1"></i>Gastos Chatbot (IA)</h4>
+            <small class="text-muted">Consumo de Gemini del chatbot (consultas de operadores){% if session.get('is_super_admin') or 'uso_ia.view' in session.get('permissions', []) %} ·
+                el resto del consumo vive en <a href="{{ url_for('costos.uso_ia_view') }}">Gastos y Logs de IA</a>{% endif %}</small>
+            {% else %}
+            <h4 class="mb-0"><i class="bi bi-chat-left-text me-1"></i>Consultas al Chatbot</h4>
+            <small class="text-muted">Qué consultaron los operadores a los chatbots, qué respondieron y de dónde salió el contexto.</small>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <form id="filtros-form" class="card card-body mb-3 shadow-sm">
+        <div class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label mb-1">Desde</label>
+                <input type="date" id="f-desde" class="form-control form-control-sm">
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Hasta</label>
+                <input type="date" id="f-hasta" class="form-control form-control-sm">
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Chatbot</label>
+                <select id="f-chatbot" class="form-select form-select-sm" style="min-width: 10rem;"
+                        title="ChatVoltara, CSV, Paygo… la lista sale de los datos: los chatbots nuevos aparecen solos">
+                    <option value="">Todos</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Usuario</label>
+                <input type="text" id="f-usuario" class="form-control form-control-sm" style="width: 11rem;"
+                       placeholder="Documento o nombre" title="Documento exacto, o parte del nombre (se busca en nómina)">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-funnel me-1"></i>Aplicar
+                </button>
+            </div>
+            <div class="col-auto">
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn btn-outline-secondary" data-rango="ytd">Este año</button>
+                    <button type="button" class="btn btn-outline-secondary" data-rango="12m">Últimos 12 meses</button>
+                    <button type="button" class="btn btn-outline-secondary" data-rango="mes">Este mes</button>
+                </div>
+            </div>
+        </div>
+        <small id="estado-resultado" class="text-muted d-block text-end mt-2 text-nowrap"></small>
+    </form>
+
+    <!-- Pestañas: Resumen (gasto/uso agregado, solo con uso_ia.chatbot) y
+         Solicitudes (interacción por interacción, la ve también Calidad). -->
+    {% if puede_costos %}
+    <ul class="nav nav-tabs mb-3" id="chatbot-tabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="tab-resumen" data-bs-toggle="tab" data-bs-target="#pane-resumen"
+                    type="button" role="tab"><i class="bi bi-graph-up me-1"></i>Resumen</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-solicitudes" data-bs-toggle="tab" data-bs-target="#pane-solicitudes"
+                    type="button" role="tab"><i class="bi bi-chat-left-text me-1"></i>Solicitudes</button>
+        </li>
+    </ul>
+    {% endif %}
+
+    <div class="tab-content">
+
+    {% if puede_costos %}
+    <!-- ================= RESUMEN ================= -->
+    <div class="tab-pane fade show active" id="pane-resumen" role="tabpanel">
+
+    <!-- KPIs -->
+    <div class="row g-3 mb-3">
+        <div class="col-md-3 col-6">
+            <div class="card shadow-sm h-100 kpi-card">
+                <div class="card-body">
+                    <div class="kpi-label">Costo total (USD)</div>
+                    <div class="kpi-value" id="kpi-costo">—</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-6">
+            <div class="card shadow-sm h-100 kpi-card">
+                <div class="card-body">
+                    <div class="kpi-label">Consultas</div>
+                    <div class="kpi-value" id="kpi-llamadas">—</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-6">
+            <div class="card shadow-sm h-100 kpi-card">
+                <div class="card-body">
+                    <div class="kpi-label">Tokens totales</div>
+                    <div class="kpi-value" id="kpi-tokens">—</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-6">
+            <div class="card shadow-sm h-100 kpi-card">
+                <div class="card-body">
+                    <div class="kpi-label">Costo por consulta</div>
+                    <div class="kpi-value" id="kpi-promedio">—</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-8">
+            <div class="card shadow-sm h-100">
+                <div class="card-header py-2"><strong>Costo por mes (USD)</strong></div>
+                <div class="card-body"><div class="chart-container"><canvas id="chart-mes"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header py-2"><strong>Costo por chatbot</strong></div>
+                <div class="card-body"><div class="chart-container"><canvas id="chart-chatbot"></canvas></div></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Uso en el tiempo: el chatbot es consumo interactivo de operadores, así
+         que el patrón de uso (diario/horario/semanal) importa tanto como el costo. -->
+    <div class="row g-3 mb-3">
+        <div class="col-12">
+            <div class="card shadow-sm h-100">
+                <div class="card-header py-2"><strong>Consultas por día</strong></div>
+                <div class="card-body"><div class="chart-container"><canvas id="chart-cb-dia"></canvas></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-8">
+            <div class="card shadow-sm h-100">
+                <div class="card-header py-2"><strong>Consultas por hora del día (ARG)</strong></div>
+                <div class="card-body"><div class="chart-container chart-container-sm"><canvas id="chart-cb-hora"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header py-2"><strong>Consultas por día de la semana</strong></div>
+                <div class="card-body"><div class="chart-container chart-container-sm"><canvas id="chart-cb-dow"></canvas></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-8">
+            <div class="card shadow-sm h-100">
+                <div class="card-header py-2"><strong>Detalle por chatbot</strong></div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <thead><tr><th data-sort="chatbot" data-dir="asc">Chatbot</th><th class="text-end" data-sort="costo">Costo USD</th><th class="text-end" data-sort="tokens">Tokens</th><th class="text-end" data-sort="llamadas">Consultas</th><th class="text-end" data-sort="prom">USD / consulta</th></tr></thead>
+                        <tbody id="tabla-chatbot"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header py-2"><strong>Costo por modelo</strong></div>
+                <div class="card-body"><div class="chart-container chart-container-sm"><canvas id="chart-modelo"></canvas></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-header py-2"><strong>Consultas y costo por mes</strong></div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <thead><tr><th data-sort="mes" data-dir="asc">Mes</th><th class="text-end" data-sort="costo">Costo USD</th><th class="text-end" data-sort="tokens">Tokens</th><th class="text-end" data-sort="llamadas">Consultas</th></tr></thead>
+                        <tbody id="tabla-mes"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-header py-2"><strong>Top usuarios por consultas</strong></div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <thead><tr><th data-sort="usuario" data-dir="asc">Usuario</th><th class="text-end" data-sort="llamadas">Consultas</th><th class="text-end" data-sort="costo">Costo USD</th></tr></thead>
+                        <tbody id="tabla-usuarios"></tbody>
+                    </table>
+                </div>
+            </div>
+            <p class="text-muted small mt-2 mb-0">
+                Nota: las consultas del chatbot anteriores a jun-2026 pueden figurar con tokens/costo en 0
+                (el modo streaming no registraba tokens; ya está corregido hacia adelante).
+            </p>
+        </div>
+    </div>
+
+    </div> <!-- /pane-resumen -->
+    {% endif %}
+
+    <!-- ================= SOLICITUDES ================= -->
+    <!-- Interacciones del chatbot, una por una: consulta, respuesta y de dónde
+         salió el contexto RAG. Fecha/Chatbot/Usuario salen del filtro de arriba;
+         acá va solo la búsqueda de texto libre. Datos: /api/uso-ia/chatbot-logs. -->
+    <div class="tab-pane fade{% if not puede_costos %} show active{% endif %}" id="pane-solicitudes" role="tabpanel">
+        <form id="filtros-solicitudes" class="card card-body mb-3 shadow-sm">
+            <div class="row g-2 align-items-end">
+                <div class="col">
+                    <label class="form-label mb-1 small">Buscar en la consulta o la respuesta</label>
+                    <input type="text" id="fs-q" class="form-control form-control-sm"
+                           placeholder="Texto a buscar (ej. medidor, titularidad…)">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search me-1"></i>Buscar</button>
+                </div>
+            </div>
+            <small class="text-muted mt-2 d-block">
+                Se combina con el rango de fechas, el chatbot y el usuario del filtro de arriba. Clic en una fila para ver el detalle completo.
+            </small>
+        </form>
+
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th data-sort="fecha">Fecha (ARG)</th>
+                                <th data-sort="usuario" data-dir="asc">Usuario</th>
+                                <th data-sort="chatbot" data-dir="asc">Chatbot</th>
+                                <th>Consulta</th>
+                                <th>Respuesta</th>
+                                <th class="text-center" title="Fuentes de contexto (RAG) recuperadas para responder">Fuentes</th>
+                                {% if puede_costos %}<th class="text-end" data-sort="tokens">Tokens</th>{% endif %}
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-solicitudes">
+                            <tr><td colspan="{{ 8 if puede_costos else 7 }}" class="text-center text-muted py-4">Cargando…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center bg-white">
+                <small class="text-muted" id="sol-paginacion">—</small>
+                <div class="btn-group btn-group-sm">
+                    <button type="button" id="sol-anterior" class="btn btn-outline-secondary" disabled>
+                        <i class="bi bi-chevron-left"></i> Anterior
+                    </button>
+                    <button type="button" id="sol-siguiente" class="btn btn-outline-secondary" disabled>
+                        Siguiente <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div> <!-- /pane-solicitudes -->
+
+    </div> <!-- /tab-content -->
+
+    <!-- Detalle de una interacción: consulta + respuesta completas + fuentes del contexto -->
+    <div class="modal fade" id="modal-interaccion" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-chat-left-text me-2"></i>Interacción <span id="mi-id" class="text-muted small"></span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body" id="mi-body">
+                    <div class="text-center text-muted py-4">Cargando…</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="{{ url_for('static', filename='js/uso_ia_common.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/uso_ia_chatbot.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,627 @@
+{% extends "layout.html" %}
+
+{% block title %}Gestionar Tips del Día - Acme Solutions{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h2 class="h4 mb-1"><i class="bi bi-lightbulb text-warning me-2"></i>Gestión de Tips del Día</h2>
+            <p class="text-muted small mb-0">
+                Configurá recomendaciones y recordatorios operativos por grupo. Al asignar un rol general, los puestos a su cargo reciben los tips en cascada.
+            </p>
+        </div>
+    </div>
+
+    <!-- Navegación por pestañas -->
+    <ul class="nav nav-tabs mb-4" id="tipsTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link {{ 'active' if active_tab == 'grupos' else '' }}" id="grupos-tab"
+                    data-bs-toggle="tab" data-bs-target="#tab-grupos" type="button" role="tab">
+                <i class="bi bi-collection me-1"></i> Grupos de Tips
+                <span class="badge bg-secondary ms-1">{{ groups|length }}</span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link {{ 'active' if active_tab == 'tips' else '' }}" id="tips-tab"
+                    data-bs-toggle="tab" data-bs-target="#tab-tips" type="button" role="tab">
+                <i class="bi bi-chat-quote me-1"></i> Tips Individuales
+                <span class="badge bg-secondary ms-1">{{ tips|length }}</span>
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="tipsTabsContent">
+
+        <!-- ============================================================= -->
+        <!-- Pestaña 1: Grupos de Tips                                      -->
+        <!-- ============================================================= -->
+        <div class="tab-pane fade {{ 'show active' if active_tab == 'grupos' else '' }}" id="tab-grupos" role="tabpanel">
+            <div class="row g-4">
+                <!-- Formulario Grupo -->
+                <div class="col-lg-4 col-md-5">
+                    <div class="card shadow-sm border-{{ 'warning' if group_to_edit else 'primary' }}">
+                        <div class="card-header {{ 'bg-warning text-dark' if group_to_edit else 'bg-primary text-white' }}">
+                            <h5 class="card-title h6 mb-0">
+                                <i class="bi {{ 'bi-pencil-square' if group_to_edit else 'bi-folder-plus' }} me-1"></i>
+                                {{ 'Editar Grupo: ' ~ group_to_edit.name if group_to_edit else 'Crear Nuevo Grupo' }}
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <form method="POST" action="{{ url_for('admin.manage_tips') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <input type="hidden" name="action" value="save_group"/>
+                                {% if group_to_edit %}
+                                <input type="hidden" name="group_id" value="{{ group_to_edit.id }}"/>
+                                {% endif %}
+
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold small">Nombre del Grupo *</label>
+                                    <input type="text" class="form-control" name="name" required maxlength="100"
+                                           placeholder="Ej: Tips Calidad, Tips Operadores"
+                                           value="{{ group_to_edit.name if group_to_edit else '' }}"/>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold small">Descripción (opcional)</label>
+                                    <textarea class="form-control" name="description" rows="2" maxlength="255"
+                                              placeholder="Breve propósito de este grupo de tips">{{ group_to_edit.description if group_to_edit and group_to_edit.description else '' }}</textarea>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold small">Roles con Acceso</label>
+                                    <div class="alert alert-info py-2 px-3 small mb-2">
+                                        <i class="bi bi-people-fill me-1"></i>
+                                        <strong>Distribución en cascada:</strong> Si marcás un puesto de cabecera o supervisión general, los tips le llegarán automáticamente a ese rol y a todos los puestos que dependan de él en la estructura (por ejemplo, coordinadores y supervisores de campaña asociados, sin tener que marcarlos uno por uno).
+                                    </div>
+                                    <div class="border rounded p-2 bg-light" style="max-height: 250px; overflow-y: auto;">
+                                        {% for r in roles %}
+                                        <div class="form-check py-1 border-bottom border-light">
+                                            <input class="form-check-input" type="checkbox" name="role_ids" value="{{ r.id }}"
+                                                   id="role_check_{{ r.id }}"
+                                                   {% if group_to_edit and r.id in group_to_edit.role_ids %}checked{% endif %}/>
+                                            <label class="form-check-label small" for="role_check_{{ r.id }}">
+                                                <span class="fw-semibold">{{ r.name }}</span>
+                                                {% if r.parent_name %}
+                                                <span class="text-muted" style="font-size: 0.78rem;">&nbsp;· depende de <em>{{ r.parent_name }}</em></span>
+                                                {% endif %}
+                                            </label>
+                                        </div>
+                                        {% else %}
+                                        <span class="text-muted small">No hay roles disponibles.</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" name="activo" value="1" id="groupActivo"
+                                           {{ 'checked' if not group_to_edit or group_to_edit.activo else '' }}/>
+                                    <label class="form-check-label small" for="groupActivo">Grupo activo</label>
+                                </div>
+
+                                <div class="d-flex gap-2">
+                                    <button type="submit" class="btn btn-sm {{ 'btn-warning' if group_to_edit else 'btn-primary' }} flex-grow-1">
+                                        <i class="bi bi-check-lg me-1"></i>
+                                        {{ 'Actualizar Grupo' if group_to_edit else 'Guardar Grupo' }}
+                                    </button>
+                                    {% if group_to_edit %}
+                                    <a href="{{ url_for('admin.manage_tips', tab='grupos') }}" class="btn btn-sm btn-outline-secondary">Cancelar</a>
+                                    {% endif %}
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tabla de Grupos -->
+                <div class="col-lg-8 col-md-7">
+                    <div class="card shadow-sm">
+                        <div class="card-header bg-white py-3">
+                            <h5 class="card-title h6 mb-0 text-muted">
+                                <i class="bi bi-list-ul me-1"></i> Grupos Registrados
+                            </h5>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light small">
+                                    <tr>
+                                        <th style="width: 25%;">Grupo</th>
+                                        <th>Roles Asignados</th>
+                                        <th class="text-center" style="width: 14%;">Alcance</th>
+                                        <th class="text-center" style="width: 10%;">Tips</th>
+                                        <th class="text-center" style="width: 10%;">Estado</th>
+                                        <th class="text-end" style="width: 15%;">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for g in groups %}
+                                    <tr>
+                                        <td>
+                                            <strong class="d-block">{{ g.name }}</strong>
+                                            {% if g.description %}
+                                            <span class="text-muted small">{{ g.description }}</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if g.roles_nombres %}
+                                                {% for rname in g.roles_nombres %}
+                                                <span class="badge bg-secondary mb-1" title="Aplica a este puesto y a todos los que dependen de él en la estructura">{{ rname }}</span>
+                                                {% endfor %}
+                                            {% else %}
+                                                <span class="text-muted small fst-italic">Sin roles asignados</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-center">
+                                            <span class="badge bg-light text-dark border" title="Personas alcanzadas considerando este puesto y sus dependencias jerárquicas">
+                                                <i class="bi bi-people me-1"></i>{{ g.usuarios_alcanzados or 0 }} pers.
+                                            </span>
+                                        </td>
+                                        <td class="text-center">
+                                            <a href="{{ url_for('admin.manage_tips', tab='tips', filter_group=g.id) }}"
+                                               class="badge bg-info text-dark text-decoration-none" title="Ver tips de este grupo">
+                                                {{ g.tips_count }} tip(s)
+                                            </a>
+                                        </td>
+                                        <td class="text-center">
+                                            {% if g.activo %}
+                                            <span class="badge bg-success">Activo</span>
+                                            {% else %}
+                                            <span class="badge bg-danger">Inactivo</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-end">
+                                            <a href="{{ url_for('admin.manage_tips', tab='grupos', edit_group_id=g.id) }}"
+                                               class="btn btn-outline-primary btn-sm py-0 px-2" title="Editar grupo">
+                                                <i class="bi bi-pencil"></i>
+                                            </a>
+                                            <form method="POST" action="{{ url_for('admin.manage_tips') }}" class="d-inline"
+                                                  onsubmit="return confirm('¿Eliminar este grupo y todos sus tips asociados?');">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                                <input type="hidden" name="action" value="delete_group"/>
+                                                <input type="hidden" name="group_id" value="{{ g.id }}"/>
+                                                <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Eliminar grupo">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% else %}
+                                    <tr>
+                                        <td colspan="6" class="text-center text-muted py-4">
+                                            No hay grupos de tips creados todavía.
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================================= -->
+        <!-- Pestaña 2: Tips Individuales                                   -->
+        <!-- ============================================================= -->
+        <div class="tab-pane fade {{ 'show active' if active_tab == 'tips' else '' }}" id="tab-tips" role="tabpanel">
+            <div class="row g-4">
+                <!-- Formulario Tip -->
+                <div class="col-lg-4 col-md-5">
+                    <div class="card shadow-sm border-{{ 'warning' if tip_to_edit else 'success' }}">
+                        <div class="card-header {{ 'bg-warning text-dark' if tip_to_edit else 'bg-success text-white' }}">
+                            <h5 class="card-title h6 mb-0">
+                                <i class="bi {{ 'bi-pencil-square' if tip_to_edit else 'bi-plus-circle' }} me-1"></i>
+                                {{ 'Editar Tip' if tip_to_edit else 'Crear Nuevo Tip' }}
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <form method="POST" action="{{ url_for('admin.manage_tips') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <input type="hidden" name="action" value="save_tip"/>
+                                {% if tip_to_edit %}
+                                <input type="hidden" name="tip_id" value="{{ tip_to_edit.id }}"/>
+                                {% endif %}
+
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold small">Grupo de Tips *</label>
+                                    <select class="form-select" name="group_id" id="tipInputGroup" required>
+                                        <option value="">-- Seleccioná un grupo --</option>
+                                        {% for g in groups %}
+                                        <option value="{{ g.id }}"
+                                                {% if (tip_to_edit and tip_to_edit.group_id == g.id) or (not tip_to_edit and filter_group == g.id) %}selected{% endif %}>
+                                            {{ g.name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    {% if not groups %}
+                                    <div class="text-danger small mt-1">Primero debés crear al menos un grupo de tips.</div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold small">Tipo de Mensaje / Relevancia *</label>
+                                    <select class="form-select" name="tipo" id="tipInputTipo" required>
+                                        <option value="info" {% if not tip_to_edit or tip_to_edit.tipo == 'info' %}selected{% endif %}>
+                                            🔵 Consejo / Calidad (Informativo azul)
+                                        </option>
+                                        <option value="warning" {% if tip_to_edit and tip_to_edit.tipo == 'warning' %}selected{% endif %}>
+                                            🟡 Alerta Operativa / Atención (Advertencia amarilla)
+                                        </option>
+                                        <option value="success" {% if tip_to_edit and tip_to_edit.tipo == 'success' %}selected{% endif %}>
+                                            🟢 Novedad / Clima / Reconocimiento (Verde)
+                                        </option>
+                                    </select>
+                                    <div class="form-text small">Define el color del recuadro e ícono con el que se mostrará al operador.</div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold small">Título / Asunto (opcional)</label>
+                                    <input type="text" class="form-control" name="title" id="tipInputTitle" maxlength="150"
+                                           placeholder="Ej: Saludo inicial, Gestión de reclamos"
+                                           value="{{ tip_to_edit.title if tip_to_edit and tip_to_edit.title else '' }}"/>
+                                </div>
+
+                                <div class="row g-2 mb-3">
+                                    <div class="col-6">
+                                        <label class="form-label fw-bold small">Vigente Desde</label>
+                                        <input type="date" class="form-control form-control-sm" name="fecha_desde" id="tipInputFechaDesde"
+                                               value="{{ tip_to_edit.fecha_desde if tip_to_edit and tip_to_edit.fecha_desde else '' }}"/>
+                                        <div class="form-text" style="font-size: 0.72rem;">Opcional (inicio)</div>
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label fw-bold small">Vigente Hasta</label>
+                                        <input type="date" class="form-control form-control-sm" name="fecha_hasta" id="tipInputFechaHasta"
+                                               value="{{ tip_to_edit.fecha_hasta if tip_to_edit and tip_to_edit.fecha_hasta else '' }}"/>
+                                        <div class="form-text" style="font-size: 0.72rem;">Opcional (fin)</div>
+                                    </div>
+                                </div>
+
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" name="es_prioritario" value="1" id="tipPrioritario"
+                                           {{ 'checked' if tip_to_edit and tip_to_edit.es_prioritario else '' }}/>
+                                    <label class="form-check-label small fw-bold text-danger" for="tipPrioritario">
+                                        <i class="bi bi-pin-angle-fill me-1"></i>Fijar como prioritario (se muestra antes que los tips comunes)
+                                    </label>
+                                </div>
+
+                                <div class="row g-2 mb-3">
+                                    <div class="col-7">
+                                        <label class="form-label fw-bold small">Enlace / URL de Acción</label>
+                                        <input type="text" class="form-control form-control-sm" name="url_accion" id="tipInputUrlAccion"
+                                               placeholder="Ej: /chatbot o https://..."
+                                               value="{{ tip_to_edit.url_accion if tip_to_edit and tip_to_edit.url_accion else '' }}"/>
+                                        <div class="form-text" style="font-size: 0.72rem;">Opcional: abre un recurso directo</div>
+                                    </div>
+                                    <div class="col-5">
+                                        <label class="form-label fw-bold small">Texto del Botón</label>
+                                        <input type="text" class="form-control form-control-sm" name="texto_accion" id="tipInputTextoAccion"
+                                               placeholder="Ej: Ver procedimiento"
+                                               value="{{ tip_to_edit.texto_accion if tip_to_edit and tip_to_edit.texto_accion else '' }}"/>
+                                        <div class="form-text" style="font-size: 0.72rem;">Etiqueta del botón</div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold small">Contenido del Tip *</label>
+                                    <textarea class="form-control" name="content" id="tipInputContent" rows="4" required
+                                              placeholder="Escribí el texto que aparecerá en el recuadro...">{{ tip_to_edit.content if tip_to_edit else '' }}</textarea>
+                                </div>
+
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" name="activo" value="1" id="tipActivo"
+                                           {{ 'checked' if not tip_to_edit or tip_to_edit.activo else '' }}/>
+                                    <label class="form-check-label small" for="tipActivo">Tip activo</label>
+                                </div>
+
+                                <div class="d-flex gap-2 mb-3">
+                                    <button type="submit" class="btn btn-sm {{ 'btn-warning' if tip_to_edit else 'btn-success' }} flex-grow-1"
+                                            {{ 'disabled' if not groups else '' }}>
+                                        <i class="bi bi-check-lg me-1"></i>
+                                        {{ 'Actualizar Tip' if tip_to_edit else 'Guardar Tip' }}
+                                    </button>
+                                    {% if tip_to_edit %}
+                                    <a href="{{ url_for('admin.manage_tips', tab='tips') }}" class="btn btn-sm btn-outline-secondary">Cancelar</a>
+                                    {% endif %}
+                                </div>
+
+                                <!-- Vista Previa en Vivo -->
+                                <div class="pt-3 border-top">
+                                    <div class="d-flex align-items-center justify-content-between mb-2">
+                                        <label class="form-label fw-bold small text-muted text-uppercase mb-0">
+                                            <i class="bi bi-eye me-1"></i> Vista Previa en Vivo
+                                        </label>
+                                        <span class="badge bg-light text-muted border" style="font-size: 0.7rem;">Así se verá en pantalla</span>
+                                    </div>
+                                    <div id="previewAlertBox" class="alert alert-info py-2 px-3 shadow-sm mb-0">
+                                        <div class="d-flex align-items-start">
+                                            <div id="previewIcon" class="me-2 mt-1 fs-5">
+                                                <i class="bi bi-lightbulb-fill text-info"></i>
+                                            </div>
+                                            <div class="flex-grow-1">
+                                                <div class="d-flex align-items-center flex-wrap gap-2 mb-1">
+                                                    <span id="previewPrioBadge" class="badge bg-danger text-white" style="display: none;">
+                                                        <i class="bi bi-pin-angle-fill me-1"></i>Prioritario
+                                                    </span>
+                                                    <strong id="previewTipoLabel" class="fw-bold">Tip del día</strong>
+                                                    <span id="previewGroupBadge" class="badge bg-light text-dark border" style="font-size: 0.75rem;">Grupo</span>
+                                                </div>
+                                                <div id="previewContent" class="small text-break" style="white-space: pre-line;">Escribí el texto para ver la previsualización...</div>
+                                                <div id="previewActionBox" class="mt-2" style="display: none;">
+                                                    <span class="btn btn-sm btn-light border fw-semibold shadow-xs py-0 px-2 small">
+                                                        <i class="bi bi-box-arrow-up-right me-1"></i><span id="previewActionText">Ver enlace</span>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tabla de Tips -->
+                <div class="col-lg-8 col-md-7">
+                    <div class="card shadow-sm">
+                        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <h5 class="card-title h6 mb-0 text-muted">
+                                <i class="bi bi-chat-left-dots me-1"></i> Tips Registrados
+                            </h5>
+
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <!-- Buscador por palabra clave -->
+                                <div class="input-group input-group-sm" style="max-width: 220px;">
+                                    <span class="input-group-text bg-white text-muted border-end-0">
+                                        <i class="bi bi-search"></i>
+                                    </span>
+                                    <input type="text" id="tipSearchInput" class="form-control border-start-0" placeholder="Buscar en tips..."/>
+                                </div>
+
+                                <!-- Filtro por grupo -->
+                                <form method="GET" action="{{ url_for('admin.manage_tips') }}" class="d-flex align-items-center gap-2">
+                                    <input type="hidden" name="tab" value="tips"/>
+                                    <select class="form-select form-select-sm" name="filter_group" onchange="this.form.submit()">
+                                        <option value="">Todos los grupos</option>
+                                        {% for g in groups %}
+                                        <option value="{{ g.id }}" {% if filter_group == g.id %}selected{% endif %}>
+                                            {{ g.name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    {% if filter_group %}
+                                    <a href="{{ url_for('admin.manage_tips', tab='tips') }}" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Quitar filtro">
+                                        <i class="bi bi-x"></i>
+                                    </a>
+                                    {% endif %}
+                                </form>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light small">
+                                    <tr>
+                                        <th style="width: 14%;">Grupo</th>
+                                        <th style="width: 12%;">Tipo</th>
+                                        <th style="width: 17%;">Título</th>
+                                        <th>Contenido</th>
+                                        <th style="width: 14%;">Vigencia</th>
+                                        <th class="text-center" style="width: 9%;">Feedback</th>
+                                        <th class="text-center" style="width: 7%;">Estado</th>
+                                        <th class="text-end" style="width: 13%;">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for t in tips %}
+                                    <tr class="tip-table-row">
+                                        <td>
+                                            <span class="badge bg-light text-dark border">{{ t.group_name or 'Sin grupo' }}</span>
+                                        </td>
+                                        <td>
+                                            {% if t.tipo == 'warning' %}
+                                            <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle-fill me-1"></i>Alerta</span>
+                                            {% elif t.tipo == 'success' %}
+                                            <span class="badge bg-success"><i class="bi bi-stars me-1"></i>Novedad</span>
+                                            {% else %}
+                                            <span class="badge bg-info text-dark"><i class="bi bi-lightbulb-fill me-1"></i>Consejo</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if t.es_prioritario %}
+                                            <span class="badge bg-danger text-white me-1" title="Tip prioritario: se muestra a toda la dotación antes que los tips comunes"><i class="bi bi-pin-angle-fill"></i></span>
+                                            {% endif %}
+                                            {% if t.title %}
+                                            <strong>{{ t.title }}</strong>
+                                            {% else %}
+                                            <span class="text-muted small fst-italic">—</span>
+                                            {% endif %}
+                                            {% if t.url_accion %}
+                                            <a href="{{ t.url_accion }}" target="_blank" rel="noopener" class="small d-block text-truncate text-primary text-decoration-none mt-1" style="max-width: 160px;" title="{{ t.url_accion }}">
+                                                <i class="bi bi-box-arrow-up-right me-1"></i>{{ t.texto_accion or 'Ver enlace' }}
+                                            </a>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <span class="small" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;" title="{{ t.content }}">
+                                                {{ t.content }}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            {% if t.fecha_desde and t.fecha_hasta %}
+                                            <span class="small text-nowrap"><i class="bi bi-calendar-range me-1 text-primary"></i>{{ t.fecha_desde }} al {{ t.fecha_hasta }}</span>
+                                            {% elif t.fecha_desde %}
+                                            <span class="small text-nowrap"><i class="bi bi-calendar-check me-1 text-primary"></i>Desde {{ t.fecha_desde }}</span>
+                                            {% elif t.fecha_hasta %}
+                                            <span class="small text-nowrap"><i class="bi bi-calendar-x me-1 text-primary"></i>Hasta {{ t.fecha_hasta }}</span>
+                                            {% else %}
+                                            <span class="badge bg-light text-muted border">Permanente</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-center">
+                                            <span class="badge bg-light text-dark border" title="Personas que marcaron 'Me sirvió' en este tip">
+                                                <i class="bi bi-hand-thumbs-up text-primary me-1"></i>{{ t.feedback_count or 0 }}
+                                            </span>
+                                        </td>
+                                        <td class="text-center">
+                                            {% if t.activo %}
+                                            <span class="badge bg-success">Activo</span>
+                                            {% else %}
+                                            <span class="badge bg-danger">Inactivo</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-end">
+                                            <a href="{{ url_for('admin.manage_tips', tab='tips', duplicate_tip_id=t.id, filter_group=filter_group) }}"
+                                               class="btn btn-outline-secondary btn-sm py-0 px-2 me-1" title="Duplicar este tip para crear uno nuevo similar">
+                                                <i class="bi bi-copy"></i>
+                                            </a>
+                                            <a href="{{ url_for('admin.manage_tips', tab='tips', edit_tip_id=t.id, filter_group=filter_group) }}"
+                                               class="btn btn-outline-primary btn-sm py-0 px-2" title="Editar tip">
+                                                <i class="bi bi-pencil"></i>
+                                            </a>
+                                            <form method="POST" action="{{ url_for('admin.manage_tips') }}" class="d-inline"
+                                                  onsubmit="return confirm('¿Eliminar este tip?');">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                                <input type="hidden" name="action" value="delete_tip"/>
+                                                <input type="hidden" name="tip_id" value="{{ t.id }}"/>
+                                                <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Eliminar tip">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% else %}
+                                    <tr>
+                                        <td colspan="8" class="text-center text-muted py-4">
+                                            {% if filter_group %}
+                                            No hay tips cargados para el grupo seleccionado.
+                                            {% else %}
+                                            No hay tips creados todavía.
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                    <tr id="tipSearchEmptyRow" style="display: none;">
+                                        <td colspan="8" class="text-center text-muted py-3">
+                                            <i class="bi bi-search me-1"></i> No se encontraron tips que coincidan con la búsqueda.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const groupSelect = document.getElementById('tipInputGroup');
+    const titleInput = document.getElementById('tipInputTitle');
+    const contentInput = document.getElementById('tipInputContent');
+    const tipoSelect = document.getElementById('tipInputTipo');
+    const prioCheck = document.getElementById('tipPrioritario');
+    const urlInput = document.getElementById('tipInputUrlAccion');
+    const textoAccionInput = document.getElementById('tipInputTextoAccion');
+
+    const previewBox = document.getElementById('previewAlertBox');
+    const previewIcon = document.getElementById('previewIcon');
+    const previewPrioBadge = document.getElementById('previewPrioBadge');
+    const previewTipoLabel = document.getElementById('previewTipoLabel');
+    const previewGroupBadge = document.getElementById('previewGroupBadge');
+    const previewContent = document.getElementById('previewContent');
+    const previewActionBox = document.getElementById('previewActionBox');
+    const previewActionText = document.getElementById('previewActionText');
+
+    if (!previewBox || !tipoSelect) return;
+
+    function updatePreview() {
+        const tipo = tipoSelect.value || 'info';
+        const title = (titleInput ? titleInput.value : '').trim();
+        const content = (contentInput ? contentInput.value : '').trim();
+        const groupName = groupSelect && groupSelect.selectedIndex > 0
+            ? groupSelect.options[groupSelect.selectedIndex].text.trim()
+            : 'Grupo';
+        const esPrio = prioCheck ? prioCheck.checked : false;
+        const urlAccion = urlInput ? urlInput.value.trim() : '';
+        const textoAccion = textoAccionInput ? textoAccionInput.value.trim() : '';
+
+        previewBox.classList.remove('alert-info', 'alert-warning', 'alert-success');
+        if (tipo === 'warning') {
+            previewBox.classList.add('alert-warning');
+            previewIcon.innerHTML = '<i class="bi bi-exclamation-triangle-fill text-warning"></i>';
+            previewTipoLabel.innerHTML = 'Alerta Operativa' + (title ? ': <span class="fw-normal">' + title + '</span>' : '');
+        } else if (tipo === 'success') {
+            previewBox.classList.add('alert-success');
+            previewIcon.innerHTML = '<i class="bi bi-stars text-success"></i>';
+            previewTipoLabel.innerHTML = 'Novedad' + (title ? ': <span class="fw-normal">' + title + '</span>' : '');
+        } else {
+            previewBox.classList.add('alert-info');
+            previewIcon.innerHTML = '<i class="bi bi-lightbulb-fill text-info"></i>';
+            previewTipoLabel.innerHTML = 'Tip del día' + (title ? ': <span class="fw-normal">' + title + '</span>' : '');
+        }
+
+        if (previewPrioBadge) {
+            previewPrioBadge.style.display = esPrio ? 'inline-block' : 'none';
+        }
+
+        previewGroupBadge.textContent = groupName;
+        previewContent.textContent = content || 'Escribí el texto para ver la previsualización...';
+
+        if (previewActionBox && previewActionText) {
+            if (urlAccion) {
+                previewActionText.textContent = textoAccion || 'Ver enlace';
+                previewActionBox.style.display = 'block';
+            } else {
+                previewActionBox.style.display = 'none';
+            }
+        }
+    }
+
+    if (groupSelect) groupSelect.addEventListener('change', updatePreview);
+    if (titleInput) titleInput.addEventListener('input', updatePreview);
+    if (contentInput) contentInput.addEventListener('input', updatePreview);
+    if (tipoSelect) tipoSelect.addEventListener('change', updatePreview);
+    if (prioCheck) prioCheck.addEventListener('change', updatePreview);
+    if (urlInput) urlInput.addEventListener('input', updatePreview);
+    if (textoAccionInput) textoAccionInput.addEventListener('input', updatePreview);
+
+    // Buscador instantáneo en la tabla de tips
+    const searchInput = document.getElementById('tipSearchInput');
+    const tipRows = document.querySelectorAll('.tip-table-row');
+    const emptyRow = document.getElementById('tipSearchEmptyRow');
+
+    if (searchInput && tipRows.length > 0) {
+        searchInput.addEventListener('input', function() {
+            const query = this.value.trim().toLowerCase();
+            let visibleCount = 0;
+
+            tipRows.forEach(function(row) {
+                const text = row.textContent.toLowerCase();
+                if (!query || text.includes(query)) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+
+            if (emptyRow) {
+                emptyRow.style.display = (visibleCount === 0) ? '' : 'none';
+            }
+        });
+
+        searchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                this.value = '';
+                this.dispatchEvent(new Event('input'));
+            }
+        });
+    }
+
+    updatePreview();
+});
+</script>
+{% endblock %}
+

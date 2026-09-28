@@ -1,0 +1,216 @@
+{% extends "layout.html" %}
+
+{% block title %}Logs de Ingreso{% endblock %}
+
+{% block styles %}
+    {{ super() }}
+    {# Reutiliza el sistema visual de las pantallas de consumo de IA #}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/uso_ia.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/login_log.css') }}">
+{% endblock %}
+
+{% block page_container %}container-wide{% endblock %}
+
+{% block content %}
+<div class="uso-ia-page login-log-page py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            <h4 class="mb-0"><i class="bi bi-box-arrow-in-right me-1"></i>Logs de Ingreso</h4>
+            <small class="text-muted">Inicios y cierres de sesión, quién está conectado ahora y evolución del uso del sistema.</small>
+        </div>
+    </div>
+
+    <!-- Filtro de fechas: aplica a los gráficos y al historial -->
+    <form id="filtros-form" class="card card-body mb-3 shadow-sm">
+        <div class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label mb-1">Desde</label>
+                <input type="date" id="f-desde" class="form-control form-control-sm">
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Hasta</label>
+                <input type="date" id="f-hasta" class="form-control form-control-sm">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-funnel me-1"></i>Aplicar
+                </button>
+            </div>
+            <div class="col-auto">
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn btn-outline-secondary" data-rango="mes">Este mes</button>
+                    <button type="button" class="btn btn-outline-secondary" data-rango="12m">Últimos 12 meses</button>
+                    <button type="button" class="btn btn-outline-secondary" data-rango="ytd">Este año</button>
+                </div>
+            </div>
+            <div class="col text-end">
+                <small id="estado-resultado" class="text-muted"></small>
+            </div>
+        </div>
+    </form>
+
+    <!-- KPIs (relativos a HOY) -->
+    <div class="row g-3 mb-3">
+        <div class="col-md col-6">
+            <div class="card shadow-sm h-100 kpi-card">
+                <div class="card-body">
+                    <div class="kpi-label"><span class="dot-online"></span>Conectados ahora</div>
+                    <div class="kpi-value text-success" id="kpi-conectados">—</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md col-6">
+            <div class="card shadow-sm h-100 kpi-card">
+                <div class="card-body">
+                    <div class="kpi-label">Ingresos hoy</div>
+                    <div class="kpi-value" id="kpi-logins-hoy">—</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md col-6">
+            <div class="card shadow-sm h-100 kpi-card">
+                <div class="card-body">
+                    <div class="kpi-label">Usuarios únicos hoy</div>
+                    <div class="kpi-value" id="kpi-usuarios-hoy">—</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md col-6">
+            <div class="card shadow-sm h-100 kpi-card">
+                <div class="card-body">
+                    <div class="kpi-label" title="Promedio de ingresos por día con actividad, en el rango seleccionado">Promedio diario</div>
+                    <div class="kpi-value" id="kpi-promedio">—</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md col-6">
+            <div class="card shadow-sm h-100 kpi-card">
+                <div class="card-body">
+                    <div class="kpi-label" title="Contraseña incorrecta o usuario inexistente (hoy)">Intentos fallidos hoy</div>
+                    <div class="kpi-value" id="kpi-fallidos" >—</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Conectados ahora -->
+    <div class="card shadow-sm mb-3">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <strong><i class="bi bi-broadcast me-1"></i>Conectados ahora</strong>
+            <span class="refresh-hint" id="activos-hint"></span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Usuario</th>
+                        <th>IP de origen</th>
+                        <th>Dispositivo</th>
+                        <th>Ingresó</th>
+                        <th>Última actividad</th>
+                    </tr>
+                </thead>
+                <tbody id="tabla-activos">
+                    <tr><td colspan="5" class="text-center text-muted py-4">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Gráficos -->
+    <div class="row g-3 mb-3">
+        <div class="col-12">
+            <div class="card shadow-sm h-100">
+                <div class="card-header py-2"><strong>Ingresos por día · ¿el uso sube o baja?</strong></div>
+                <div class="card-body"><div class="chart-container chart-container-lg"><canvas id="chart-dia"></canvas></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-7">
+            <div class="card shadow-sm h-100">
+                <div class="card-header py-2"><strong>Ingresos por hora del día · horas pico</strong></div>
+                <div class="card-body"><div class="chart-container chart-container-sm"><canvas id="chart-hora"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card shadow-sm h-100">
+                <div class="card-header py-2"><strong>Ingresos por día de la semana</strong></div>
+                <div class="card-body"><div class="chart-container chart-container-sm"><canvas id="chart-dow"></canvas></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-7">
+            <div class="card shadow-sm h-100">
+                <div class="card-header py-2"><strong>Usuarios más activos</strong></div>
+                <!-- La altura la ajusta renderBarrasH según la cantidad de usuarios. -->
+                <div class="card-body"><div class="chart-container chart-container-sm"><canvas id="chart-top"></canvas></div></div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card shadow-sm h-100">
+                <div class="card-header py-2"><strong>Intentos fallidos por día</strong></div>
+                <div class="card-body"><div class="chart-container chart-container-sm"><canvas id="chart-fallidos"></canvas></div></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Historial -->
+    <div class="card shadow-sm">
+        <div class="card-header py-2"><strong><i class="bi bi-clock-history me-1"></i>Historial de eventos</strong></div>
+        <div class="card-body pb-2">
+            <div class="row g-2 align-items-end">
+                <div class="col-auto">
+                    <label class="form-label small mb-1">Evento</label>
+                    <select id="fl-event" class="form-select form-select-sm">
+                        <option value="">Todos</option>
+                        <option value="login">Ingreso</option>
+                        <option value="logout">Cierre de sesión</option>
+                        <option value="login_failed">Intento fallido</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small mb-1">Usuario (documento)</label>
+                    <input type="number" id="fl-documento" class="form-control form-control-sm" placeholder="DNI">
+                </div>
+                <div class="col-auto">
+                    <button id="fl-aplicar" type="button" class="btn btn-sm btn-outline-primary">Filtrar historial</button>
+                </div>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th data-sort="fecha">Fecha</th>
+                        <th data-sort="documento">Usuario</th>
+                        <th data-sort="event">Evento</th>
+                        <th data-sort="ip">IP de origen</th>
+                        <th>Dispositivo</th>
+                    </tr>
+                </thead>
+                <tbody id="tabla-historial">
+                    <tr><td colspan="5" class="text-center text-muted py-4">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer d-flex justify-content-between align-items-center">
+            <span id="hist-paginacion-info" class="text-muted small"></span>
+            <div>
+                <button id="hist-btn-anterior" class="btn btn-sm btn-outline-secondary" type="button">&laquo; Anterior</button>
+                <button id="hist-btn-siguiente" class="btn btn-sm btn-outline-secondary" type="button">Siguiente &raquo;</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="{{ url_for('static', filename='js/uso_ia_common.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/login_log.js') }}"></script>
+{% endblock %}

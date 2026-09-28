@@ -1,0 +1,151 @@
+{% extends "layout.html" %}
+
+{% block title %}Cupos de Auditoría{% endblock %}
+
+{% block styles %}
+    {{ super() }}
+    {# Reutiliza el sistema visual de las pantallas de consumo de IA #}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/uso_ia.css') }}">
+{% endblock %}
+
+{% block page_container %}container-wide{% endblock %}
+
+{% block content %}
+<div class="uso-ia-page py-3">
+
+    <div class="d-flex justify-content-between align-items-end mb-3 flex-wrap gap-2">
+        <div>
+            <h4 class="mb-0"><i class="bi bi-sliders me-1"></i>Cupos de Auditoría</h4>
+            <small class="text-muted">
+                Cuántas auditorías por mes puede consumir cada campaña y cuánto es eso en dólares.
+                No alcanza a Calidad ni al super admin.
+            </small>
+        </div>
+        <div class="d-flex align-items-end gap-2">
+            <div>
+                <label for="f-mes" class="form-label small mb-1">Mes</label>
+                <input type="month" id="f-mes" class="form-control form-control-sm">
+            </div>
+            <button id="btn-refrescar" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-clockwise me-1"></i>Actualizar
+            </button>
+        </div>
+    </div>
+
+    <!-- Resumen del mes -->
+    <div class="row g-2 mb-3" id="kpis"></div>
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span class="fw-semibold">Campañas</span>
+            <div class="d-flex align-items-center gap-2">
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="solo-con-cupo">
+                    <label class="form-check-label small" for="solo-con-cupo">Solo las que tienen cupo</label>
+                </div>
+                <input type="search" id="buscar" class="form-control form-control-sm"
+                       placeholder="Buscar campaña o empresa" style="max-width: 240px;">
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="tabla-cuotas">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Empresa / Campaña</th>
+                            <th class="text-end">Cupo mensual</th>
+                            <th class="text-end">Tope por usuario</th>
+                            <th style="min-width: 190px;">Consumido</th>
+                            <th class="text-end">Disponible</th>
+                            <th class="text-end">
+                                Costo por auditoría
+                                <i class="bi bi-info-circle text-muted"
+                                   title="Costo promedio real de esta campaña en los últimos 90 días (tarifa vigente del modelo, batch a mitad de precio). Si la campaña todavía no auditó nada se usa el promedio general."></i>
+                            </th>
+                            <th class="text-end">
+                                Gasto máximo
+                                <i class="bi bi-info-circle text-muted"
+                                   title="Lo máximo que puede gastar la campaña este mes si consume el cupo entero (cupo x costo por auditoría)."></i>
+                            </th>
+                            <th class="text-end">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cuerpo-cuotas">
+                        <tr><td colspan="8" class="text-center text-muted py-4">Cargando…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer bg-light small text-muted">
+            El cupo se cuenta por llamado: una auditoría descuenta 1 y una transcripción pedida
+            a demanda también (se paga igual). Se renueva el día 1 de cada mes. Al enviar un
+            pedido se descuenta lo solicitado y, cuando la corrida termina, se ajusta a lo
+            realmente auditado.
+        </div>
+    </div>
+</div>
+
+<!-- Editar cupo -->
+<div class="modal fade" id="modal-cupo" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-sliders me-2"></i>Cupo de <span id="cupo-campana"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="cupo-campana-id">
+                <div class="mb-3">
+                    <label class="form-label" for="cupo-limite">Auditorías por mes (toda la campaña)</label>
+                    <input type="number" min="0" step="1" class="form-control" id="cupo-limite" placeholder="Sin tope">
+                    <div class="form-text">
+                        Vacío = sin tope: se mide el consumo pero no se bloquea a nadie.
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="cupo-limite-usuario">Tope por usuario (opcional)</label>
+                    <input type="number" min="0" step="1" class="form-control" id="cupo-limite-usuario" placeholder="Sin tope individual">
+                    <div class="form-text">
+                        Para que un solo supervisor no se lleve todo el cupo de la campaña.
+                    </div>
+                </div>
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="cupo-activo" checked>
+                    <label class="form-check-label" for="cupo-activo">Cupo activo</label>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="cupo-nota">Nota (opcional)</label>
+                    <input type="text" maxlength="400" class="form-control" id="cupo-nota"
+                           placeholder="Por qué se fijó este número">
+                </div>
+                <div class="alert alert-info mb-0 py-2 small" id="cupo-proyeccion"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btn-guardar-cupo">
+                    <i class="bi bi-save me-1"></i>Guardar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Detalle por usuario -->
+<div class="modal fade" id="modal-detalle" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-people me-2"></i>Consumo de <span id="detalle-campana"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="detalle-cuerpo"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="{{ url_for('static', filename='js/uso_ia_common.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/cuotas.js') }}"></script>
+{% endblock %}

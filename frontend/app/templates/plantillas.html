@@ -1,0 +1,872 @@
+{% extends "layout.html" %}
+
+{% block title %}Gestor de Plantillas{% endblock %}
+
+{% block styles %}
+    {{ super() }}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/plantillas.css') }}">
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
+{% endblock %}
+
+{% block content %}
+{# Poder escribir en las plantillas (template:create) decide tres cosas en esta pantalla:
+   qué botones se ven, si se ofrece el aviso de la función nueva y si el historial deja
+   restaurar. Se calcula una vez acá arriba. #}
+{% set puede_editar = session.get('is_super_admin') or 'template:create' in session.get('permissions', []) %}
+<div id="plantillas-container">
+    <nav aria-label="breadcrumb" id="navigation-breadcrumbs" class="mb-4" style="display: none;">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="#" id="breadcrumb-inicio">Inicio</a></li>
+            <li class="breadcrumb-item" id="breadcrumb-empresa"></li>
+            <li class="breadcrumb-item" id="breadcrumb-campana"></li>
+            <li class="breadcrumb-item active" id="breadcrumb-plantilla" aria-current="page"></li>
+        </ol>
+    </nav>
+
+    <div id="loading-overlay">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Cargando...</span>
+        </div>
+    </div>
+
+    <div id="notification-area" class="alert alert-dismissible fade" role="alert" style="display: none;">
+        <span id="notification-message"></span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+
+    {# Aviso de la función nueva. La revisión integral es un botón más en una pantalla
+       llena de botones: si nadie lo señala, no se descubre. Se cierra una vez y no
+       vuelve (queda registrado en el navegador), y en vez de explicar acá lo que ya está
+       explicado en el manual, linkea al capítulo. Solo se le ofrece a quien puede
+       editar plantillas: al resto le mostraría algo que no puede usar. #}
+    {% if puede_editar %}
+    <div id="novedad-revision-ia" class="alert alert-dismissible fade show novedad-ia" role="alert" style="display: none;">
+        <i class="bi bi-stars me-1"></i>
+        <strong>Nuevo:</strong> la IA ya puede revisar la plantilla <strong>entera</strong> —tipos de
+        respuesta, opciones de las listas, ponderaciones y criterios que falten— mirando además
+        <strong>cómo viene funcionando en las auditorías</strong>. Vos elegís qué cambios aplicar y,
+        si no era lo que esperabas, se deshace.
+        <a href="{{ url_for('docs.documentacion') }}#ia" target="_blank" rel="noopener" class="alert-link ms-1">
+            Ver cómo funciona <i class="bi bi-box-arrow-up-right"></i>
+        </a>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+    </div>
+    {% endif %}
+
+    <div id="panel-empresas" class="plantillas-panel">
+        <div class="card shadow-sm">
+            <div class="card-header">
+                <h3 class="mb-0"><i class="bi bi-building me-2"></i>Seleccionar Empresa</h3>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">Haz clic en una empresa para ver sus campañas y plantillas.</p>
+                <div id="empresas-list" class="list-group">
+                    <div class="list-empty-placeholder text-center p-3">
+                        <span class="spinner-border spinner-border-sm"></span> Cargando empresas...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="panel-campanas" class="plantillas-panel" style="display: none;">
+        <h2 id="campana-panel-title" class="mb-3"></h2>
+
+        <div class="row g-4">
+            <div class="col-lg-6">
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        {# Sin template:create los botones quedan ocultos (d-none) pero en el DOM:
+                           plantillas.js los referencia sin null-guard. El backend igual exige el permiso. #}
+                        {% set puede_crear = session.get('is_super_admin') or 'template:create' in session.get('permissions', []) %}
+                        <h4 class="mb-0"><i class="bi bi-collection me-2"></i>Campañas</h4>
+                        <button id="btn-crear-campana" class="btn btn-sm btn-primary {{ '' if puede_crear else 'd-none' }}" data-bs-toggle="modal" data-bs-target="#modal-crear-campana">
+                            <i class="bi bi-plus-lg"></i> Crear Campaña
+                        </button>
+                    </div>
+                    <div id="campanas-list" class="list-group list-group-flush">
+                        <div class="list-empty-placeholder text-center p-3">Cargando campañas...</div>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        {% set puede_crear = session.get('is_super_admin') or 'template:create' in session.get('permissions', []) %}
+                        <h4 class="mb-0"><i class="bi bi-file-earmark-text me-2"></i>Plantillas</h4>
+                        <div class="d-flex gap-2 {{ '' if puede_crear else 'd-none' }}">
+                            {# Chequeo estructural de todas las plantillas de la campaña. No llama a
+                               la IA ni gasta tokens: son las mismas señales que la revisión usa como
+                               diagnóstico, corridas sobre todas juntas. #}
+                            <button id="btn-salud-plantillas" class="btn btn-sm btn-outline-secondary" disabled
+                                    data-bs-toggle="tooltip"
+                                    title="Marca de una las plantillas de la campaña que tienen algo mal armado. Sin IA, instantáneo.">
+                                <i class="bi bi-clipboard-pulse"></i> Chequear
+                            </button>
+                            <button id="btn-generar-plantilla-ia" class="btn btn-sm btn-ia" disabled data-bs-toggle="tooltip"
+                                    title="Crear una plantilla automáticamente describiéndola en palabras simples">
+                                <i class="bi bi-stars"></i> Generar con IA
+                            </button>
+                            <button id="btn-crear-plantilla" class="btn btn-sm btn-success" disabled>
+                                <i class="bi bi-plus-lg"></i> Nueva Plantilla
+                            </button>
+                        </div>
+                    </div>
+                    <div id="plantillas-filtro-container" class="card-body py-2 px-3 bg-light border-bottom d-none">
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                            <div class="d-flex align-items-center gap-1 flex-wrap" id="plantillas-filtro-pills">
+                                <span class="text-muted small me-1">Uso:</span>
+                                <button type="button" class="btn btn-sm btn-outline-secondary btn-filtro-uso active" data-filtro="todos">
+                                    Todas <span class="badge bg-secondary ms-1" id="count-filtro-todos">0</span>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-success btn-filtro-uso" data-filtro="activa" title="Auditadas en los últimos 30 días">
+                                    <i class="bi bi-check-circle-fill me-1"></i>En uso <span class="badge bg-success ms-1" id="count-filtro-activa">0</span>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-warning text-dark btn-filtro-uso" data-filtro="inactiva_1m" title="Sin auditorías entre 1 y 3 meses">
+                                    <i class="bi bi-exclamation-triangle-fill text-warning me-1"></i>&gt;1 mes <span class="badge bg-warning text-dark ms-1" id="count-filtro-inactiva-1m">0</span>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-danger btn-filtro-uso" data-filtro="inactivas_alerta" title="Sin uso en más de 3 meses o nunca utilizadas">
+                                    <i class="bi bi-x-circle-fill text-danger me-1"></i>&gt;3 meses / Nunca <span class="badge bg-danger ms-1" id="count-filtro-inactiva-3m">0</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="plantillas-list" class="list-group list-group-flush">
+                        <div class="list-empty-placeholder text-center p-3">Selecciona una campaña para ver sus plantillas.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="card shadow-sm">
+                    <div class="card-header">
+                        <h4 class="mb-0"><i class="bi bi-tags me-2"></i>Gestión de Skills de Campaña</h4>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted" id="skills-ayuda">Selecciona una campaña para gestionar sus skills.</p>
+
+                        <div id="skills-manager" style="display: none;">
+                            <div class="mb-3">
+                                <label for="skills-disponibles-select" class="form-label fw-bold">Skills Disponibles</label>
+                                <div class="input-group">
+                                    <select id="skills-disponibles-select" class="form-select" data-placeholder="Skills de la empresa...">
+                                    </select>
+                                    <button class="btn btn-outline-primary" type="button" id="btn-asignar-skill">
+                                        Asignar <i class="bi bi-arrow-right-short"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <hr>
+
+                            <div>
+                                <label class="form-label fw-bold">Skills Asignados</label>
+                                <div id="skills-asignados-list" class="skills-list-container">
+                                    <div class="list-empty-placeholder text-center p-3">No hay skills asignados.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# `data-puede-editar` lo lee plantillas.js para mostrar (o no) las acciones que
+       escriben — hoy, el botón "restaurar" del historial. Los botones gateados por Jinja
+       igual quedan en el DOM con d-none porque el JS los referencia sin null-guard. #}
+    <div id="panel-editor" class="plantillas-panel" style="display: none;" data-puede-editar="{{ '1' if puede_editar else '0' }}">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="d-flex align-items-center gap-3">
+                <h2 id="editor-panel-title" class="mb-0">{{ 'Editando Plantilla' if puede_editar else 'Plantilla' }}</h2>
+                <span id="editor-plantilla-uso-badge" class="badge" style="display: none;"></span>
+            </div>
+            <div class="d-flex gap-2">
+                {# Revisión integral: el único botón que puede tocar la ESTRUCTURA de la
+                   plantilla (tipos, opciones, opcionales, pesos, altas y bajas), así que
+                   va detrás de template:create como el resto de las escrituras. #}
+                {# El signo de pregunta va PEGADO al botón (btn-group) y no suelto en la
+                   barra: así se lee como "ayuda de esto", que es lo que es. #}
+                <div class="btn-group {{ '' if puede_editar else 'd-none' }}">
+                    <button id="btn-revisar-plantilla-ia" class="btn btn-ia btn-lg" data-bs-toggle="tooltip"
+                            title="Propone cambios en toda la plantilla —prompts, tipos de respuesta, opciones, pesos— mirando cómo viene respondiendo en las auditorías">
+                        <i class="bi bi-stars me-2"></i>Revisar todo con IA
+                    </button>
+                    <a href="{{ url_for('docs.documentacion') }}#ia" target="_blank" rel="noopener"
+                       class="btn btn-ia btn-lg btn-ayuda-doc" data-bs-toggle="tooltip"
+                       title="Cómo funciona, paso a paso (abre el manual en otra pestaña)">
+                        <i class="bi bi-question-lg"></i>
+                    </a>
+                </div>
+                <button id="btn-historial-plantilla" class="btn btn-outline-secondary btn-lg" data-bs-toggle="tooltip"
+                        title="Con qué versiones del prompt se auditó esta plantilla, y volver a cualquiera de ellas">
+                    <i class="bi bi-clock-history me-2"></i>Historial
+                </button>
+                {# Alta manual de versión. El historial se escribe solo cuando la plantilla
+                   AUDITA, así que entre editar y la próxima corrida no hay punto de retorno
+                   —y forzar una auditoría solo para tenerlo cuesta plata. Este botón es ese
+                   punto de retorno a pedido. Escribe: va detrás de template:create. #}
+                <button id="btn-guardar-version" class="btn btn-outline-primary btn-lg {{ '' if puede_editar else 'd-none' }}"
+                        data-bs-toggle="tooltip"
+                        title="Deja el estado actual guardado en el historial, para poder volver acá más adelante. No hace falta auditar.">
+                    <i class="bi bi-bookmark-plus me-2"></i>Guardar en el historial
+                </button>
+                {# Sin template:create la pantalla es de consulta: el botón se oculta
+                   (queda en el DOM, plantillas.js lo referencia sin null-guard). #}
+                <button id="btn-guardar-plantilla" class="btn btn-success btn-lg {{ '' if puede_editar else 'd-none' }}">
+                    <i class="bi bi-save me-2"></i>Guardar Cambios
+                </button>
+            </div>
+        </div>
+
+        {% if not puede_editar %}
+        <div class="alert alert-secondary d-flex align-items-center gap-2 py-2">
+            <i class="bi bi-eye"></i>
+            <div class="small mb-0">
+                <strong>Solo lectura.</strong> Podés ver la plantilla y el detalle de cada atributo
+                (qué se le pide a la IA, tipo de respuesta, peso y alertas), pero no modificarlos.
+                Los cambios los hace Calidad.
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <form id="plantilla-edit-form">
+                    <input type="hidden" id="plantilla-id-hidden">
+
+                    <fieldset class="mb-4">
+                        <legend>Información General</legend>
+                        <div class="mb-3">
+                            <label for="plantilla-nombre" class="form-label">Nombre</label>
+                            <input type="text" class="form-control" id="plantilla-nombre" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="plantilla-descripcion" class="form-label">Descripción</label>
+                            <textarea class="form-control" id="plantilla-descripcion" rows="2"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="plantilla-system-prompt" class="form-label">System Prompt</label>
+                            <div class="ia-toolbar">
+                                <input type="text" class="form-control form-control-sm ia-instruccion" id="ia-instruccion-system"
+                                       placeholder="Opcional: contale a la IA qué querés agregar o cambiar (ej.: 'agregá una regla para llamados cortos')">
+                                <button type="button" class="btn btn-sm btn-ia btn-ia-mejorar"
+                                        data-ia-campo="system_prompt" data-ia-target="plantilla-system-prompt" data-ia-instruccion="ia-instruccion-system">
+                                    <i class="bi bi-stars"></i> Mejorar con IA
+                                </button>
+                            </div>
+                            <textarea class="form-control" id="plantilla-system-prompt" rows="8"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="plantilla-recordatorio" class="form-label">Recordatorio</label>
+                            <div class="ia-toolbar">
+                                <input type="text" class="form-control form-control-sm ia-instruccion" id="ia-instruccion-recordatorio"
+                                       placeholder="Opcional: qué querés agregar o cambiar en el recordatorio">
+                                <button type="button" class="btn btn-sm btn-ia btn-ia-mejorar"
+                                        data-ia-campo="recordatorio" data-ia-target="plantilla-recordatorio" data-ia-instruccion="ia-instruccion-recordatorio">
+                                    <i class="bi bi-stars"></i> Mejorar con IA
+                                </button>
+                            </div>
+                            <textarea class="form-control" id="plantilla-recordatorio" rows="3"></textarea>
+                        </div>
+                        {% if session.get('is_super_admin') or 'template:modelo_ia' in session.get('permissions', []) %}
+                        <div class="mb-3">
+                            <label for="plantilla-nivel-razonamiento" class="form-label fw-bold">
+                                Nivel de razonamiento <i class="bi bi-lock-fill text-muted" title="Solo visible para roles con permiso especial"></i>
+                            </label>
+                            <select class="form-select" id="plantilla-nivel-razonamiento"></select>
+                            <div id="plantilla-nivel-razonamiento-info" class="form-text"></div>
+                        </div>
+                        {% endif %}
+                    </fieldset>
+
+                    {# Conocimiento de referencia: documentos de los chatbots que la IA lee antes
+                       de auditar. Se guarda desde su modal (como los atributos), no con
+                       "Guardar Cambios". Lo llena cargarConocimiento() en plantillas.js. #}
+                    <fieldset class="mb-4">
+                        <legend class="d-flex justify-content-between align-items-center">
+                            Conocimiento de referencia
+                            <button type="button" id="btn-elegir-conocimiento" class="btn btn-sm btn-outline-primary {{ '' if puede_editar else 'd-none' }}">
+                                <i class="bi bi-journal-check me-1"></i> Elegir documentos
+                            </button>
+                        </legend>
+                        <div class="form-text mt-0 mb-2">
+                            Documentos de los chatbots que la IA lee antes de auditar, para saber cuál es la
+                            gestión correcta: procedimientos, montos, plazos, qué orden corresponde generar.
+                            Dejá afuera los que explican cómo usar una herramienta: el auditor escucha el
+                            llamado, no ve la pantalla.
+                        </div>
+                        <div id="conocimiento-resumen"></div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend class="d-flex justify-content-between align-items-center">
+                            Atributos de Evaluación
+                            <button type="button" id="btn-anadir-atributo" class="btn btn-sm btn-primary {{ '' if puede_editar else 'd-none' }}">
+                                <i class="bi bi-plus-lg me-1"></i> Añadir Atributo
+                            </button>
+                        </legend>
+                        {# Semáforo de la plantilla: el chequeo que antes había que ir a
+                           buscar al modal de salud, arriba de los atributos que revisa.
+                           Lo llena pintarSemaforo() en plantillas.js. #}
+                        <div id="atributos-senales-resumen" class="senales-resumen"></div>
+                        <div id="atributos-list" class="list-group sortable-list">
+                            <div class="list-empty-placeholder text-center p-3">Esta plantilla no tiene atributos.</div>
+                        </div>
+                        <div class="form-text text-center mt-2">
+                            <i class="bi bi-arrows-move"></i> Puedes arrastrar y soltar los atributos para reordenarlos.
+                        </div>
+                    </fieldset>
+                </form>
+            </div>
+        </div>
+    </div>
+
+</div> <div class="modal fade" id="modal-crear-campana" tabindex="-1" aria-labelledby="modalCrearCampanaLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="form-crear-campana">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalCrearCampanaLabel">Crear Nueva Campaña</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="nueva-campana-nombre" class="form-label">Nombre de la Campaña <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="nueva-campana-nombre" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="nueva-campana-plataforma" class="form-label">Plataforma <span class="text-danger">*</span></label>
+                        <select class="form-select" id="nueva-campana-plataforma" required>
+                            <option value="" selected disabled>-- Cargando plataformas... --</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Crear Campaña</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modal-crear-plantilla" tabindex="-1" aria-labelledby="modalCrearPlantillaLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form id="form-crear-plantilla">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalCrearPlantillaLabel">Crear Nueva Plantilla</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="nueva-plantilla-nombre" class="form-label">Nombre <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="nueva-plantilla-nombre" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="nueva-plantilla-descripcion" class="form-label">Descripción</label>
+                        <textarea class="form-control" id="nueva-plantilla-descripcion" rows="2"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="nueva-plantilla-system-prompt" class="form-label">System Prompt <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="nueva-plantilla-system-prompt" rows="6" required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="nueva-plantilla-recordatorio" class="form-label">Recordatorio</label>
+                        <textarea class="form-control" id="nueva-plantilla-recordatorio" rows="2"></textarea>
+                    </div>
+                    {% if session.get('is_super_admin') or 'template:modelo_ia' in session.get('permissions', []) %}
+                    <div class="mb-3">
+                        <label for="nueva-plantilla-nivel-razonamiento" class="form-label fw-bold">
+                            Nivel de razonamiento <i class="bi bi-lock-fill text-muted" title="Solo visible para roles con permiso especial"></i>
+                        </label>
+                        <select class="form-select" id="nueva-plantilla-nivel-razonamiento"></select>
+                        <div id="nueva-plantilla-nivel-razonamiento-info" class="form-text"></div>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Crear Plantilla</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modal-duplicar-plantilla" tabindex="-1" aria-labelledby="modalDuplicarPlantillaLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="form-duplicar-plantilla">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalDuplicarPlantillaLabel"><i class="bi bi-files me-2"></i>Duplicar Plantilla</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="duplicar-plantilla-id">
+                    <p class="text-muted">
+                        Se creará una copia de <strong id="duplicar-plantilla-origen"></strong> con todos sus
+                        atributos (prompts, tipos, pesos y alertas). La copia es independiente: editarla no afecta a la original.
+                    </p>
+                    <div class="mb-3">
+                        <label for="duplicar-plantilla-nombre" class="form-label">Nombre de la copia <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="duplicar-plantilla-nombre" maxlength="255" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="duplicar-plantilla-campana" class="form-label">Campaña destino</label>
+                        <select class="form-select" id="duplicar-plantilla-campana"></select>
+                        <div class="form-text">Podés dejar la copia en la misma campaña o llevarla a otra de esta empresa.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-files me-1"></i>Duplicar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modal-atributo" tabindex="-1" aria-labelledby="modalAtributoLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form id="atributo-form">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalAtributoLabel">Gestionar Atributo</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="atributo-id">
+
+                    <div class="mb-3">
+                        <label for="atributo-nombre" class="form-label">Nombre del Atributo <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="atributo-nombre" required>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="atributo-tipo" class="form-label">Tipo de Respuesta <span class="text-danger">*</span></label>
+                            <select class="form-select" id="atributo-tipo" required>
+                                <option value="" disabled selected>-- Elige un tipo de respuesta --</option>
+                                <optgroup label="Calidad ponderada">
+                                    <option value="critical_audit">Calidad (OK / NO OK / EC)</option>
+                                </optgroup>
+                                <optgroup label="Respuesta Única">
+                                    <option value="string">Texto (libre)</option>
+                                    <option value="integer">Número (entero)</option>
+                                    <option value="number">Número (con decimales)</option>
+                                    <option value="boolean">Si / No</option>
+                                    <option value="enum">Selección Única (de una lista)</option>
+                                </optgroup>
+                                <optgroup label="Respuesta Múltiple (Listas)">
+                                    <option value="array_string">Lista de Textos</option>
+                                    <option value="array_integer">Lista de Números (enteros)</option>
+                                    <option value="array_number">Lista de Números (con decimales)</option>
+                                    <option value="array_boolean">Lista de Si / No</option>
+                                    <option value="array_enum">Selección Múltiple (de una lista)</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="atributo-orden" class="form-label">Orden</label>
+                            <input type="number" class="form-control" id="atributo-orden" value="0" min="0">
+                            <div class="form-text">Arrastrar y soltar.</div>
+                        </div>
+                        <div class="col-md-3" id="ponderacion-container" style="display: none;">
+                            <label for="atributo-ponderacion" class="form-label">Ponderación (peso)</label>
+                            <input type="number" class="form-control" id="atributo-ponderacion" value="0" min="0" step="0.5">
+                            <div class="form-text">Peso del atributo. 0 = no puntúa.</div>
+                        </div>
+                    </div>
+
+                    <div class="form-check form-switch mt-3" id="opcional-container" style="display: none;">
+                        <input class="form-check-input" type="checkbox" id="atributo-opcional">
+                        <label class="form-check-label" for="atributo-opcional">
+                            <strong>Opcional</strong> — si la interacción no permite responderlo (el criterio no aplica,
+                            el llamado se cortó antes, el tema nunca se tocó), la IA lo deja <em>sin responder</em> en
+                            lugar de contestar cualquier cosa. El atributo queda vacío en la auditoría y no penaliza.
+                        </label>
+                    </div>
+
+                    {# Texto libre: aviso del tope de caracteres y del atajo mal usado (pedir la
+                       transcripción como atributo). Ver AuditorIA/limites_texto.py. #}
+                    <div class="alert alert-warning py-2 px-3 mb-0 mt-2" id="texto-libre-hint" style="display: none;">
+                        <i class="bi bi-textarea-t"></i>
+                        <strong>Respuesta de texto:</strong> es para algo <strong>breve</strong> (un feedback, un resumen
+                        de dos líneas, una cita corta). Admite hasta <strong id="texto-libre-tope">1500</strong>
+                        caracteres; lo que exceda se recorta al guardar la auditoría.
+                        <div class="mt-1">
+                            <strong>No pidas acá la transcripción del llamado.</strong> Ya existe y sale más barata:
+                            tildá <em>Transcripción</em> al lanzar la auditoría, o pedila después desde
+                            <em>Auditorías Realizadas → Transcribir</em>. Pedirla como atributo se paga como texto
+                            generado en cada llamado y puede cortar el resultado de la auditoría entera.
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info py-2 px-3 mb-0 mt-2" id="critical-audit-hint" style="display: none;">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>Calidad ponderada:</strong> la IA responde <code>OK</code> / <code>NO&nbsp;OK</code><span id="ec-hint-text"> / <code>EC</code></span><span id="na-hint-text"> / <code>N/A</code></span>.
+                        <code>OK</code> suma el 100% del peso, <code>NO OK</code> suma 0<span id="ec-hint-text-2">, y
+                        <code>EC</code> (Error Crítico) deja el puntaje del llamado en <strong>0</strong> automáticamente</span><span id="na-hint-text-2">. <code>N/A</code> excluye el atributo del cálculo y renormaliza con el resto</span>.
+                        Los pesos se normalizan al total.
+                        <div class="form-check form-switch mt-2">
+                            <input class="form-check-input" type="checkbox" id="atributo-permite-ec" checked>
+                            <label class="form-check-label" for="atributo-permite-ec">
+                                Permite <strong>Error Crítico (EC)</strong> — destildá si este atributo solo admite OK / NO OK
+                            </label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="atributo-permite-na">
+                            <label class="form-check-label" for="atributo-permite-na">
+                                Permite <strong>N/A (No Aplicable)</strong> — tildá si en algunos llamados este atributo puede no aplicar y debe quedar fuera del cálculo
+                            </label>
+                        </div>
+                        <span id="suma-pesos-info" class="d-block mt-1 fw-bold"></span>
+                    </div>
+
+                    <div class="mb-3 mt-3">
+                        <label for="atributo-prompt" class="form-label">Prompt del Atributo <span class="text-danger">*</span></label>
+                        <div class="ia-toolbar">
+                            <input type="text" class="form-control form-control-sm ia-instruccion" id="ia-instruccion-atributo"
+                                   placeholder="Opcional: qué querés agregar o cambiar (ej.: 'contemplá cuando el cliente corta enseguida')">
+                            <button type="button" class="btn btn-sm btn-ia btn-ia-mejorar"
+                                    data-ia-campo="atributo" data-ia-target="atributo-prompt" data-ia-instruccion="ia-instruccion-atributo">
+                                <i class="bi bi-stars"></i> Mejorar con IA
+                            </button>
+                        </div>
+                        <textarea class="form-control" id="atributo-prompt" rows="5" required></textarea>
+                        <div class="form-text">Describe qué debe evaluar la IA para este atributo.</div>
+                    </div>
+
+                    <div class="mb-3 mt-3" id="enum-options-container" style="display: none;">
+                        <label for="atributo-enum-options" class="form-label">Opciones Disponibles <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="atributo-enum-options" placeholder="Opcion A, Opcion B, Opcion C">
+                        <div class="form-text">
+                            Ingresa las opciones separadas por comas (,). Ejemplo: <code>Bueno, Regular, Malo</code>
+                        </div>
+                    </div>
+                    <div class="mb-3 mt-4 border-top pt-3">
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="atributo-dar-aviso">
+                            <label class="form-check-label fw-bold text-danger" for="atributo-dar-aviso">
+                                <i class="bi bi-exclamation-triangle"></i> Generar Alerta de Calidad
+                            </label>
+                        </div>
+                        <div id="frases-aviso-container" style="display: none; background-color: #fff3f3; padding: 10px; border-radius: 5px; border: 1px solid #ffcdd2;">
+                            <label for="atributo-frases-aviso" class="form-label text-danger">Palabras o frases clave (separadas por coma)</label>
+                            <input type="text" class="form-control border-danger" id="atributo-frases-aviso" placeholder="ej: insulto, no resuelto, denuncia">
+                            <div class="form-text">
+                                Si la respuesta de la IA a este atributo contiene alguna de estas palabras, se enviará un email con el audio al supervisor y a Calidad.
+                            </div>
+                        </div>
+                    </div>
+                    </div> <div class="modal-footer">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar Atributo</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modal-ia-preview" tabindex="-1" aria-labelledby="modalIaPreviewLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-ia-header">
+                <h5 class="modal-title" id="modalIaPreviewLabel"><i class="bi bi-stars me-2"></i>Propuesta de mejora con IA</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="ia-preview-loading" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Cargando...</span></div>
+                    <p class="mt-3 mb-0 fw-medium">La IA está revisando el texto…</p>
+                </div>
+                <div id="ia-preview-content" style="display: none;">
+                    <div id="ia-preview-sincambios" class="alert alert-success" style="display: none;">
+                        <i class="bi bi-check-circle"></i> La IA considera que este texto ya está bien y no propone cambios.
+                    </div>
+                    <div class="mb-3" id="ia-preview-resumen-wrap">
+                        <h6 class="fw-bold"><i class="bi bi-list-check me-1"></i>Qué cambió la IA y por qué</h6>
+                        <ul id="ia-preview-resumen" class="ia-resumen"></ul>
+                    </div>
+                    <div id="ia-preview-nota" class="alert alert-warning py-2" style="display: none;"></div>
+                    <div class="ia-diff">
+                        <div class="ia-diff-col">
+                            <div class="ia-diff-title"><i class="bi bi-file-text me-1"></i>Texto actual</div>
+                            <pre id="ia-preview-antes" class="ia-diff-box ia-diff-antes"></pre>
+                        </div>
+                        <div class="ia-diff-col">
+                            <div class="ia-diff-title"><i class="bi bi-stars me-1"></i>Propuesta de la IA</div>
+                            <pre id="ia-preview-despues" class="ia-diff-box ia-diff-despues"></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar (no cambiar nada)</button>
+                <button type="button" id="btn-ia-aplicar" class="btn btn-ia"><i class="bi bi-check-lg me-1"></i>Aplicar este cambio</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modal-ia-generar" tabindex="-1" aria-labelledby="modalIaGenerarLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-ia-header">
+                <h5 class="modal-title" id="modalIaGenerarLabel"><i class="bi bi-stars me-2"></i>Generar plantilla con IA</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="ia-generar-paso-descripcion">
+                    <label for="ia-generar-descripcion" class="form-label fw-bold">Contanos en palabras simples qué querés auditar</label>
+                    <textarea id="ia-generar-descripcion" class="form-control" rows="5"
+                        placeholder="Ej.: Quiero auditar llamados de ventas de telefonía. Que evalúe si el operador saludó bien, si ofreció el producto correcto y si fue amable, y que detecte si el cliente quedó conforme. Tené en cuenta los llamados donde el cliente pide que lo llamen más tarde y corta enseguida."></textarea>
+                    <div class="form-text">La IA va a proponer el System Prompt, el Recordatorio y los atributos a evaluar. Después vas a poder revisarlo y, si te gusta, crear la plantilla.</div>
+                </div>
+                <div id="ia-generar-loading" class="text-center py-5" style="display: none;">
+                    <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Cargando...</span></div>
+                    <p class="mt-3 mb-0 fw-medium">La IA está diseñando la plantilla…</p>
+                </div>
+                <div id="ia-generar-preview" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" id="btn-ia-generar-volver" class="btn btn-outline-secondary" style="display: none;"><i class="bi bi-arrow-left me-1"></i>Volver / Regenerar</button>
+                <button type="button" id="btn-ia-generar-ejecutar" class="btn btn-ia"><i class="bi bi-magic me-1"></i>Generar propuesta</button>
+                <button type="button" id="btn-ia-generar-crear" class="btn btn-success" style="display: none;"><i class="bi bi-check-lg me-1"></i>Crear esta plantilla</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# === Chequeo de salud de las plantillas de la campaña ========================
+   No llama a la IA: son chequeos estructurales (mismas señales que alimentan la
+   revisión) corridos sobre todas las plantillas de la campaña. Cuesta cero tokens,
+   así que se puede mirar seguido. #}
+<div class="modal fade" id="modal-salud" tabindex="-1" aria-labelledby="modalSaludLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalSaludLabel">
+                    <i class="bi bi-clipboard-pulse me-2"></i>Chequeo de plantillas
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">
+                    Revisión automática de cómo están armadas las plantillas de esta campaña:
+                    listas sin salida segura, atributos de calidad que no puntúan, criterios que la IA
+                    no puede dejar sin responder, nombres repetidos. <strong>No usa IA</strong> y no
+                    mira las auditorías: es una lectura de la estructura.
+                </p>
+                <div id="salud-loading" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Cargando...</span></div>
+                </div>
+                <div id="salud-error" class="alert alert-danger" style="display: none;"></div>
+                <div id="salud-contenido" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# === Revisión integral de la plantilla ======================================
+   "Mejorar con IA" reescribe UN texto. Esto mira la plantilla entera y propone
+   también cambios de estructura (tipo de dato, opciones de las listas, marca de
+   opcional, ponderación, atributos que faltan y los que sobran). Se aplica por
+   partes: cada cambio tiene su tilde, porque cambiar el tipo o el nombre de un
+   atributo que ya auditó no es reversible en el histórico. #}
+<div class="modal fade" id="modal-ia-revision" tabindex="-1" aria-labelledby="modalIaRevisionLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-ia-header">
+                <h5 class="modal-title" id="modalIaRevisionLabel"><i class="bi bi-stars me-2"></i>Revisar toda la plantilla con IA</h5>
+                <a href="{{ url_for('docs.documentacion') }}#ia" target="_blank" rel="noopener"
+                   class="btn btn-sm btn-light ms-auto me-2" title="Leer cómo funciona en el manual">
+                    <i class="bi bi-question-circle me-1"></i>¿Cómo funciona?
+                </a>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div id="ia-revision-paso-1">
+                    <p class="text-muted">
+                        La IA lee la plantilla completa y propone cambios: la redacción de los prompts,
+                        el <strong>tipo de dato</strong> de cada atributo, las <strong>opciones</strong> de las listas,
+                        qué atributos pueden quedar <strong>sin responder</strong>, las <strong>ponderaciones</strong>
+                        y los criterios que faltan. Después elegís uno por uno cuáles aplicar.
+                    </p>
+
+                    <label for="ia-revision-instruccion" class="form-label fw-bold">¿Querés pedirle algo puntual? (opcional)</label>
+                    <textarea id="ia-revision-instruccion" class="form-control" rows="3"
+                        placeholder="Ej.: sumá un criterio para cuando el cliente pide hablar con un supervisor, y sacale peso al saludo."></textarea>
+
+                    <label class="form-label fw-bold mt-3">¿En qué querés que se concentre? (opcional)</label>
+                    <div id="ia-revision-focos" class="ia-rev-focos">
+                        <span class="text-muted small">Cargando…</span>
+                    </div>
+
+                    <div class="form-check form-switch mt-3">
+                        <input class="form-check-input" type="checkbox" id="ia-revision-permitir-eliminar">
+                        <label class="form-check-label" for="ia-revision-permitir-eliminar">
+                            Permitir que proponga <strong>eliminar</strong> atributos duplicados o que no aportan
+                            <span class="d-block form-text mt-0">Igual no se elimina nada sin que lo tildes en la propuesta.</span>
+                        </label>
+                    </div>
+
+                    <div class="alert alert-secondary py-2 px-3 mt-3 mb-0 small">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Los atributos se leen tal como están guardados. De la cabecera se toma lo que tenés
+                        en pantalla, así que si la editaste y todavía no guardaste, se revisa <em>eso</em>.
+                    </div>
+                </div>
+
+                <div id="ia-revision-loading" class="text-center py-5" style="display: none;">
+                    <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Cargando...</span></div>
+                    <p class="mt-3 mb-0 fw-medium">
+                        La IA está revisando la plantilla entera…<span id="ia-revision-reloj"></span>
+                    </p>
+                    <p class="text-muted small mb-0">
+                        Puede tardar un par de minutos: mira todos los atributos, los compara entre sí y
+                        revisa cómo vienen respondiendo en las auditorías. Podés dejar la ventana abierta.
+                    </p>
+                </div>
+
+                <div id="ia-revision-resultado" style="display: none;"></div>
+
+                {# Paso final: qué se guardó y la salida de emergencia. Una revisión toca
+                   varios atributos de una sola vez, así que el "deshacer" tiene que estar
+                   acá, a la vista, y no escondido en el historial. #}
+                <div id="ia-revision-aplicado" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" id="btn-ia-revision-volver" class="btn btn-outline-secondary" style="display: none;">
+                    <i class="bi bi-arrow-left me-1"></i>Volver / Revisar de nuevo
+                </button>
+                <button type="button" id="btn-ia-revision-ejecutar" class="btn btn-ia">
+                    <i class="bi bi-search me-1"></i>Revisar plantilla
+                </button>
+                <button type="button" id="btn-ia-revision-aplicar" class="btn btn-success" style="display: none;">
+                    <i class="bi bi-check-lg me-1"></i>Aplicar seleccionados
+                </button>
+                <button type="button" id="btn-ia-revision-deshacer" class="btn btn-outline-danger" style="display: none;">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Deshacer todo
+                </button>
+                <button type="button" id="btn-ia-revision-listo" class="btn btn-success" style="display: none;">
+                    <i class="bi bi-check-lg me-1"></i>Listo
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# === Historial de versiones =================================================
+   Una versión se registra sola cuando la plantilla AUDITA (o cuando alguien revisa
+   una auditoría suya), no al guardar en el editor: lo que se traza es el prompt
+   que produjo resultados, no cada clic. Por eso el aviso de arriba del listado
+   es parte del diseño y no un detalle: sin él, quien acaba de editar y no ve su
+   cambio en la lista cree que el historial está roto. Ese mismo aviso ofrece
+   guardar el estado a mano —igual que el botón "Guardar en el historial" de la
+   barra del editor—, que es cómo se consigue un punto de retorno sin pagar una
+   auditoría. #}
+<div class="modal fade" id="modal-historial" tabindex="-1" aria-labelledby="modalHistorialLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalHistorialLabel">
+                    <i class="bi bi-clock-history me-2"></i>Historial de versiones
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div id="historial-loading" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Cargando...</span></div>
+                </div>
+                <div id="historial-error" class="alert alert-danger" style="display: none;"></div>
+
+                <div id="historial-estado" class="alert py-2 small" style="display: none;"></div>
+
+                <div id="historial-contenido" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width: 90px;">Versión</th>
+                                    <th>Creada</th>
+                                    <th>Auditorías</th>
+                                    <th>Motivo</th>
+                                    <th style="width: 250px;">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historial-tbody"></tbody>
+                        </table>
+                    </div>
+
+                    <div id="historial-diff" class="mt-3" style="display: none;">
+                        <h6 class="fw-bold" id="historial-diff-titulo"></h6>
+                        <div id="historial-diff-contenido"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# Elegir el conocimiento de referencia de la plantilla. Los tildes de todos los bots se
+   guardan juntos: se puede combinar documentos de más de un chatbot. #}
+<div class="modal fade" id="modal-conocimiento" tabindex="-1" aria-labelledby="modalConocimientoLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalConocimientoLabel">
+                    <i class="bi bi-journal-check me-2"></i>Conocimiento de referencia
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="small text-muted mb-3">
+                    Tildá los documentos que le sirven al auditor para saber si lo que dijo el operador
+                    es correcto. Los manuales de uso de sistemas (pantallas, campos, botones) no suman:
+                    la IA no ve lo que hace el operador en la pantalla. Rige desde la próxima auditoría.
+                </div>
+                <div class="mb-3">
+                    <label for="conocimiento-chatbot" class="form-label fw-bold">Chatbot</label>
+                    <select id="conocimiento-chatbot" class="form-select"></select>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                        <button type="button" id="conocimiento-todos" class="btn btn-sm btn-link p-0 me-3">Marcar todos</button>
+                        <button type="button" id="conocimiento-ninguno" class="btn btn-sm btn-link p-0">Desmarcar todos</button>
+                    </div>
+                    <div id="conocimiento-total" class="small text-muted"></div>
+                </div>
+                <div id="conocimiento-docs" class="list-group"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" id="btn-guardar-conocimiento" class="btn btn-primary">
+                    <i class="bi bi-save me-1"></i>Guardar selección
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <script src="{{ url_for('static', filename='js/plantillas.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,56 @@
+/* Extras de la pantalla "Logs de Ingreso". Reutiliza el sistema visual de
+ * uso_ia.css (cards planas, KPIs, chart-container, tablas) aplicando la clase
+ * .uso-ia-page; acá van solo las piezas propias de esta página: el punto de
+ * presencia "en vivo", el badge de auto-refresh y ajustes de altura de gráfico.
+ */
+
+/* Punto verde pulsante de "conectado ahora". */
+.login-log-page .dot-online {
+    display: inline-block;
+    width: .6rem;
+    height: .6rem;
+    border-radius: 50%;
+    background-color: #198754;
+    margin-right: .4rem;
+    vertical-align: middle;
+    box-shadow: 0 0 0 rgba(25, 135, 84, .5);
+    animation: login-log-pulse 2s infinite;
+}
+
+@keyframes login-log-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(25, 135, 84, .5); }
+    70%  { box-shadow: 0 0 0 6px rgba(25, 135, 84, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(25, 135, 84, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .login-log-page .dot-online { animation: none; }
+}
+
+/* Badge chico con el "actualizado hace…" del panel de conectados. */
+.login-log-page .refresh-hint {
+    font-size: .72rem;
+    color: var(--uso-ia-tinta-suave, #6c757d);
+}
+
+/* Gráfico de tendencia diaria un poco más alto (es el principal). */
+.login-log-page .chart-container-lg {
+    position: relative;
+    height: 320px;
+}
+
+/* User-agent parseado a "Navegador / SO": chico y gris, sin desbordar. */
+.login-log-page .ua-cell {
+    font-size: .78rem;
+    color: var(--uso-ia-tinta-suave, #6c757d);
+    max-width: 240px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.login-log-page .ip-cell {
+    font-variant-numeric: tabular-nums;
+    font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+    font-size: .8rem;
+}

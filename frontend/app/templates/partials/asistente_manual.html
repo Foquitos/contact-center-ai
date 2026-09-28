@@ -1,0 +1,79 @@
+{#
+  Coral: la burbuja de ayuda. Preguntale lo que quieras sobre CÓMO se usa el sistema y
+  te contesta con el manual (/documentacion), no con un modelo suelto. Está en todas
+  las pantallas porque la duda aparece mientras se trabaja, no mientras se lee el
+  manual.
+
+  El nombre sale de Acme en chiquito (y de paso es un pez, que es la mascota). Se usa
+  también en el prompt del backend, para que se presente igual que acá.
+
+  El contenido lo arma el servidor (routes/docs.py::asistente_manual): acá no hay nada
+  del manual, solo la cáscara. Ver static/js/asistente_manual.js.
+#}
+
+{# El dibujo, una sola vez por página: el cuerpo va con currentColor para que sirva
+   igual en el botón azul (pez blanco) que sobre fondo claro (pez azul). La copia de
+   color fijo para <img> es static/imagenes/coral.svg. #}
+<svg width="0" height="0" class="visually-hidden" aria-hidden="true" focusable="false">
+    <symbol id="coral-pez" viewBox="0 0 64 64">
+        <path fill="#00a8cc" d="M20 36 L4 22 Q9 36 4 50 Z"/>
+        <path fill="#00a8cc" d="M30 23 L38 10 C40 17 44 21 47 24 C41 20 35 20 30 23 Z"/>
+        <path fill="#00a8cc" d="M33 50 L36 57 C39 55 42 52 44 50 C40 52 36 52 33 50 Z"/>
+        {# El ojo es un calado: deja ver el fondo, así el pez funciona sobre cualquier color. #}
+        <path fill="currentColor" fill-rule="evenodd"
+              d="M18 36 C18 27 26 21 37 21 C49 21 58 28 58 36 C58 44 49 51 37 51 C26 51 18 45 18 36 Z
+                 M46 26.6 a4.4 4.4 0 1 0 0 8.8 a4.4 4.4 0 1 0 0 -8.8 Z"/>
+        <circle fill="currentColor" cx="47" cy="30.4" r="1.7"/>
+        <circle fill="#00a8cc" cx="60.5" cy="26" r="1.5"/>
+        <circle fill="#00a8cc" cx="56" cy="14" r="3"/>
+    </symbol>
+</svg>
+
+<button type="button" id="asistente-fab" class="asistente-fab" aria-expanded="false"
+        aria-controls="asistente-panel" title="Preguntarle a Coral cómo se usa el sistema">
+    <svg class="asistente-fab-pez" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <use href="#coral-pez"></use>
+    </svg>
+    <i class="bi bi-x-lg asistente-fab-cerrar" aria-hidden="true"></i>
+    <span class="visually-hidden">Abrir el asistente de ayuda</span>
+</button>
+
+<section id="asistente-panel" class="asistente-panel" hidden aria-labelledby="asistente-titulo">
+    <header class="asistente-header">
+        <svg class="asistente-avatar" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+            <use href="#coral-pez"></use>
+        </svg>
+        <div class="flex-grow-1">
+            <h2 class="asistente-titulo" id="asistente-titulo">Coral</h2>
+            <p class="asistente-subtitulo mb-0">
+                Sabe tu manual de memoria.
+                <a href="{{ url_for('docs.documentacion') }}">Verlo completo</a>
+            </p>
+        </div>
+        <button type="button" class="btn-close" id="asistente-cerrar" aria-label="Cerrar el asistente"></button>
+    </header>
+
+    <div class="asistente-mensajes" id="asistente-mensajes" role="log" aria-live="polite">
+        <div class="asistente-vacio" id="asistente-vacio">
+            <img src="{{ url_for('static', filename='imagenes/coral.svg') }}" alt=""
+                 class="asistente-vacio-pez" width="56" height="56">
+            <p class="mb-1"><strong>Hola, soy Coral.</strong></p>
+            <p class="mb-2">Preguntame en criollo cómo se hace algo. Por ejemplo:</p>
+            <div class="asistente-sugerencias">
+                <button type="button" class="asistente-chip" data-pregunta="¿Para qué sirve esta pantalla y qué puedo hacer acá?">¿Para qué sirve esta pantalla?</button>
+                <button type="button" class="asistente-chip" data-pregunta="¿Cuáles son los primeros pasos para empezar a usar el sistema?">¿Por dónde empiezo?</button>
+                <button type="button" class="asistente-chip" data-pregunta="¿Qué significan los términos que aparecen en esta pantalla?">¿Qué significa cada término?</button>
+            </div>
+        </div>
+    </div>
+
+    <form class="asistente-form" id="asistente-form">
+        <label class="visually-hidden" for="asistente-input">Tu pregunta</label>
+        <textarea id="asistente-input" class="form-control" rows="1" maxlength="1500"
+                  placeholder="Preguntale a Coral…" autocomplete="off"></textarea>
+        <button type="submit" class="btn asistente-enviar" id="asistente-enviar"
+                aria-label="Enviar la pregunta">
+            <i class="bi bi-send-fill" aria-hidden="true"></i>
+        </button>
+    </form>
+</section>
