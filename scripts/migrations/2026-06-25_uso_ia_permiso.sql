@@ -6,8 +6,8 @@
    QUÉ AGREGA
    ----------
    1) Permiso pagina_web.Permissions ('uso_ia.view') que protege:
-        - backend FastAPI  /uso-ia/*           (RoleChecker(['uso_ia.view']))
-        - frontend Flask   /uso-ia y /api/uso-ia/*  (@permission_required('uso_ia.view'))
+        - backend FastAPI  /uso-ia/…           (RoleChecker(['uso_ia.view']))
+        - frontend Flask   /uso-ia y /api/uso-ia/…  (@permission_required('uso_ia.view'))
    2) Lo asigna a todos los roles que ya tienen 'bandeja.view' (gerencia/supervisión),
       como default razonable. Los super-admin ya ven todo por su flag, no necesitan grant.
 

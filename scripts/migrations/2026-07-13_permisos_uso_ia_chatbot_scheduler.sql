@@ -10,7 +10,7 @@
       uso_ia.view queda EXCLUSIVO de "Gastos y Logs de IA" (grupo=auditorias,
       logs y presupuesto).
    2) audit:scheduler — página "Scheduler de auditorías" y sus endpoints CRUD
-      (/Auditoria/scheduler/*). Antes viajaba con audit:execute. OJO: es un
+      (/Auditoria/scheduler/…). Antes viajaba con audit:execute. OJO: es un
       permiso ADICIONAL a audit:execute (el router de auditorías lo sigue
       exigiendo y la pantalla necesita la cascada de empresas/plantillas):
       scheduler = audit:execute + audit:scheduler.

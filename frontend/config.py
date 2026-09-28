@@ -4,7 +4,8 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 class Config:
-    SECRET_KEY = os.environ.get('FLASK_SECRET_KEY', b'_5#y2L"F4Q8z\n\xec]/')
+    # En producción FLASK_SECRET_KEY va en el .env; el default solo sirve para desarrollo local.
+    SECRET_KEY = os.environ.get('FLASK_SECRET_KEY', 'solo-para-desarrollo-local')
     FASTAPI_BASE_URL = os.environ.get('FASTAPI_URL', 'http://localhost:8000')
 
     # Tope duro del cuerpo de CUALQUIER request de la app. Sin esto, Flask acepta la

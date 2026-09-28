@@ -3362,8 +3362,13 @@
       const guardada = Number(window.localStorage.getItem(CLAVE_CAMPANA));
       if (guardada) return guardada;
     } catch (e) { /* sin almacenamiento local: se usa la de siempre */ }
+    campanaPorDefecto = true;
     return 20;
   }
+
+  // La campaña salió del default y no de una elección (URL o la última usada): si esa
+  // campaña está inactiva, se abre la primera activa con datos.
+  let campanaPorDefecto = false;
 
   function recordarCampana() {
     try { window.localStorage.setItem(CLAVE_CAMPANA, String(estado.campana)); } catch (e) { /* idem */ }
@@ -3379,7 +3384,8 @@
     try {
       const lista = (await pedir("campanas")).campanas || [];
       if (lista.length) {
-        if (!lista.some((c) => c.campana_id === estado.campana)) {
+        const actual = lista.find((c) => c.campana_id === estado.campana);
+        if (!actual || (campanaPorDefecto && !actual.activa)) {
           estado.campana = (lista.find((c) => c.activa && c.con_fuente) || lista[0]).campana_id;
         }
         sel.innerHTML = lista.map((c) =>

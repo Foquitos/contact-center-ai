@@ -175,7 +175,7 @@ def test_login_web_sigue_los_tres_pasos(monkeypatch):
     sesion = _SesionFalsa([
         _Resp(302, headers={"location": "/?rid=RID1#/"}),
         _Resp(200, PAGINA_LOGIN),
-        _Resp(200, js={"userId": "u", "orgName": "edenredargentina"}),
+        _Resp(200, js={"userId": "u", "orgName": "benefixargentina"}),
         _Resp(200, js={"status": "approved",
                        "redirect": "https://apps.sae1.pure.cloud/directory/#access_token=TOK&expires_in=691199"}),
     ])

@@ -61,7 +61,7 @@
 
    ROLLBACK
    --------
-   Recrear la vista con scripts/esquema/dbo.Tablero_Voltara.View.sql (como
+   Recrear la vista con db/esquema/dbo.Tablero_Voltara.View.sql (como
    ALTER VIEW) y DROP INDEX de los cuatro índices de abajo.
    ============================================================================ */
 

@@ -63,6 +63,19 @@ El manual para usuarios finales está dentro de la aplicación, en `/documentaci
 
 ---
 
+## Probarlo con la base de demostración
+
+La base original no viaja con el repo. En `db/` hay un SQL Server en Docker con el esquema completo y datos
+inventados (auditorías, dashboard, uso de IA, planificador con un año de llamadas):
+
+```bash
+make install && cp .env.example .env
+make db-demo              # SQL Server en Docker + base Acme con datos de ejemplo
+make dev                  # http://localhost:7000 — usuario 11111111, clave demo1234
+```
+
+Usuarios, qué trae y qué necesita una clave de Gemini: [db/README.md](db/README.md).
+
 ## Instalación en desarrollo
 
 Requisitos: **Python 3.11 o más** (numpy y scipy lo exigen), driver ODBC 18 de SQL Server, Google Chrome (para
@@ -98,7 +111,7 @@ scripts/correr_tests.sh tests/test_chatbots_live.py -m tokens  # GASTA tokens de
 ```
 
 Los tests están en `backend/tests/` (configuración en `backend/conftest.py`). Varios validan SQL contra la base
-**sin ejecutarlo** (fixture `validar_sql`): necesitan el `.env` y conexión a la base. Ver
+**sin ejecutarlo** (fixture `validar_sql`): necesitan el `.env` y conexión a la base (sirve la de demostración). Ver
 [BASE_DE_DATOS.md → Cómo se valida](docs/BASE_DE_DATOS.md#cómo-se-valida-antes-de-aplicarla).
 
 ---
@@ -122,6 +135,7 @@ contact-center-ai/
 │   └── app/                 # routes/ (blueprints), templates/, static/, utils/ (api_client, menu_config)
 ├── scripts/                 # crons, recuperación de lotes, evaluación, utilitarios
 │   └── migrations/          # SQL de las migraciones
+├── db/                      # base de demostración: esquema, datos inventados, docker-compose
 ├── docs/
 ├── docker-compose.qdrant.yml
 ├── requirements.txt         # un solo archivo para backend y frontend

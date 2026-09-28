@@ -1,0 +1,18 @@
+-- Table [dbo].[sitios]
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[sitios]') AND type in (N'U'))
+BEGIN
+CREATE TABLE [dbo].[sitios](
+	[id] [tinyint] IDENTITY(1,1) NOT NULL,
+	[nombre] [varchar](50) NULL,
+	[direccion] [varchar](255) NULL,
+ CONSTRAINT [PK__sitios__3213E83FA3082043] PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]
+END
+GO

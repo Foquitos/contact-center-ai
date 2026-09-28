@@ -13,7 +13,7 @@ base, tiene los permisos de escritura y DDL y mantiene las cargas externas.
 1. **Dev y prod usan la misma base.** Lo que se escribe desde SRV00 (dev) lo ve producción. Por eso las
    tablas de trabajo llevan la columna `Entorno` (ver [más abajo](#la-columna-entorno)).
 2. **La fuente de verdad del esquema es la base.** El repo tiene una foto del esquema al 23/09/2026 en
-   `scripts/esquema/` (ver [Esquema versionado](#esquema-versionado)) y las migraciones en
+   `db/esquema/` (ver [Esquema versionado](#esquema-versionado)) y las migraciones en
    `scripts/migrations/`, las dos en git desde el traspaso. Si la foto y la base difieren, manda la base.
 3. **No hay tabla de control de migraciones.** Para saber si una migración está aplicada hay que buscar lo que
    crea (una tabla, una columna, un dato).
@@ -285,14 +285,12 @@ Ver OPERACION.md → Aplicar una migración.
 
 ### Esquema versionado
 
-`scripts/esquema/` tiene un archivo `.sql` por objeto de la base `Acme` (tablas, vistas, procedimientos,
-funciones y esquemas), generado con SSMS el 23/09/2026. Sirve para reconstruir la base, para ver una tabla sin
-consultar producción y para comparar con `git diff` qué cambió entre dos fotos.
+`db/esquema/` tiene un archivo `.sql` por objeto de la base `Acme` (tablas, vistas, procedimientos,
+funciones y esquemas), generado con SSMS el 23/09/2026 y anonimizado para esta versión pública. Con él y las
+migraciones, `db/crear_base_demo.py` arma la base de demostración (ver [db/README.md](../db/README.md)).
 
-No incluye: datos, usuarios y roles de la base (los archivos `*.User.sql` y `*.ApplicationRole.sql` quedan
-fuera de git porque llevan nombres de personas), linked servers ni jobs del SQL Agent (son del servidor, los
-administra Reporting). Una migración (`2026-09-02d_vantix_bases_terceras.sql`) también queda fuera de git
-porque trae datos de contacto del personal de un cliente; está solo en SRV00.
+No incluye: datos, usuarios y roles de la base, linked servers ni jobs del SQL Agent. Tampoco las pocas vistas
+que en la base original apuntaban a tablas que ya no existían.
 
 **Cómo regenerarlo** (después de aplicar migraciones, para que la foto no quede vieja):
 
@@ -301,11 +299,11 @@ porque trae datos de contacto del personal de un cliente; está solo en SRV00.
 2. **Advanced:** *Types of data to script* = Schema only; *Script Indexes*, *Triggers*, *Check Constraints*,
    *Foreign Keys*, *Primary Keys*, *Unique Keys* = True; *Script USE DATABASE* = False; *Script Logins* y
    *Script Object-Level Permissions* = False; *Include IF NOT EXISTS* = True.
-3. **Output:** "One script file per object", sobre `scripts/esquema/`.
+3. **Output:** "One script file per object", sobre `db/esquema/`.
 4. SSMS guarda en UTF-16; pasarlo a UTF-8 para que git muestre las diferencias:
 
    ```bash
-   cd scripts/esquema
+   cd db/esquema
    for f in *.sql; do
      if file -b "$f" | grep -q UTF-16; then
        iconv -f UTF-16LE -t UTF-8 "$f" | sed '1s/^\xEF\xBB\xBF//; s/\r$//' > "$f.tmp" && mv "$f.tmp" "$f"
@@ -313,7 +311,7 @@ porque trae datos de contacto del personal de un cliente; está solo en SRV00.
    done
    ```
 
-5. Revisar con `git diff --stat scripts/esquema` que lo que cambió sea lo que se migró, y commitear.
+5. Revisar con `git diff --stat db/esquema` que lo que cambió sea lo que se migró, y commitear.
 
 ### Migraciones pendientes al 23/09
 

@@ -449,9 +449,10 @@ REGISTRO_MIGRACIONES: List[dict] = [
      "senal": "tabla planificacion.PuestoMalla", "verificar": _tabla("planificacion.PuestoMalla")},
     {"archivo": "2026-09-09f_planificador_pool_solo_telefonicas.sql",
      # 09f dejó sólo las telefónicas; 10b sumó Artefactos (64) y 14b T1-Consumo (177).
-     "senal": "PoolOrigen sin sub-campañas fuera de 54, 64, 100, 106, 177",
+     # Después se sumaron Hidra (57, 2026-09-22) y Gasur (121, 2026-09-24).
+     "senal": "PoolOrigen sin sub-campañas fuera de 54, 57, 64, 100, 106, 121, 177",
      "verificar": _consulta("SELECT COUNT(*) FROM planificacion.PoolOrigen "
-                            "WHERE CampanaRRHHID NOT IN (54, 64, 100, 106, 177)", 0,
+                            "WHERE CampanaRRHHID NOT IN (54, 57, 64, 100, 106, 121, 177)", 0,
                             requiere="planificacion.PoolOrigen")},
     {"archivo": "2026-09-10_planificador_shrinkage_por_dia_y_break.sql",
      "senal": "columna Campana.BreakMinPorHora",

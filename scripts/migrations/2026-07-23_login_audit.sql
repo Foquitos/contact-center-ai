@@ -27,7 +27,7 @@
 
    2) Permiso pagina_web.Permissions 'logs:login' — habilita ver la pantalla
       "Logs de Ingreso" (menú Administración > Usuarios y accesos) y sus
-      endpoints backend (/session/*). NACE SIN ASIGNAR (estilo
+      endpoints backend (/session/…). NACE SIN ASIGNAR (estilo
       uso_ia.chatbot / audit:scheduler): hasta que se asigne rol por rol desde
       Gestionar Roles, SOLO el super admin ve la página.
 

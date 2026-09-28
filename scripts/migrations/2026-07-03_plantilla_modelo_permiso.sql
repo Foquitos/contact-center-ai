@@ -8,7 +8,7 @@
    ----------
    Permiso pagina_web.Permissions ('template:modelo_ia') que protege:
      - backend FastAPI  GET /Auditoria/plantillas/modelos-ia (catálogo con precios)
-       y el campo modelo_ia dentro de GET/POST/PUT /Auditoria/plantillas/*
+       y el campo modelo_ia dentro de GET/POST/PUT /Auditoria/plantillas/…
        (RoleChecker(['template:modelo_ia']), ver app/routers/planillas_prompts.py)
      - frontend Flask   el selector de modelo en /plantillas
        (session['permissions'], ver templates/plantillas.html)

@@ -1,0 +1,22 @@
+# Base de datos de demostración: SQL Server 2022 Developer en Docker.
+# Levantar: `make db-demo` (o `docker compose -f db/docker-compose.yml up -d` + `python db/crear_base_demo.py`).
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: contact-center-ai-sql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${DEMO_SA_PASSWORD:-Demo_ContactCenter_2026}
+    ports:
+      - "127.0.0.1:${DEMO_SQL_PORT:-1433}:1433"
+    volumes:
+      - sqlserver-datos:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  sqlserver-datos:

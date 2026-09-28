@@ -1,0 +1,17 @@
+-- Table [dbo].[Odonto_Plus_Estado]
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[Odonto_Plus_Estado]') AND type in (N'U'))
+BEGIN
+CREATE TABLE [dbo].[Odonto_Plus_Estado](
+	[index] [tinyint] IDENTITY(1,1) NOT NULL,
+	[estado] [varchar](max) NOT NULL,
+ CONSTRAINT [PK_Odonto_Plus_Estado] PRIMARY KEY CLUSTERED 
+(
+	[index] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+END
+GO

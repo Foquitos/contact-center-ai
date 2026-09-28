@@ -59,7 +59,7 @@ Solo están las que siguen vigentes al 23/09/2026; al final hay una sección de 
 ### Migraciones a mano, esquema versionado como foto
 - **Contexto:** el esquema nació en la base y hasta el traspaso ni el esquema ni las migraciones estaban en git.
 - **Decisión:** los cambios se entregan como migraciones aditivas e idempotentes en `scripts/migrations/`, que
-  se aplican antes del deploy. Desde el 23/09/2026 las migraciones y una foto del esquema (`scripts/esquema/`)
+  se aplican antes del deploy. Desde el 23/09/2026 las migraciones y una foto del esquema (`db/esquema/`)
   están en git.
 - **Consecuencia:** no hay forma automática de saber qué migración está aplicada; hay que verificar lo que
   crea. La foto del esquema hay que regenerarla después de cada migración. Ver

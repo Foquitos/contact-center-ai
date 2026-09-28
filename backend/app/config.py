@@ -189,7 +189,7 @@ class Settings(BaseSettings):
     # (solo falla la auditoría/carga de Benefix, con un error que lo dice).
     GENESYS_USER: str = ""
     GENESYS_PASS: str = ""
-    # Región de la org (edenredargentina vive en sa-east-1).
+    # Región de la org (benefixargentina vive en sa-east-1).
     GENESYS_REGION: str = "sae1.pure.cloud"
     # Descargas de audio en paralelo. La API admite 300 pedidos/min por token y cada
     # audio son 2-3 pedidos (transcodificación + bajada del archivo firmado).

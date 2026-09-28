@@ -1,0 +1,83 @@
+-- Table [dbo].[Voltara Enerval informe skills]
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[Voltara Enerval informe skills]') AND type in (N'U'))
+BEGIN
+CREATE TABLE [dbo].[Voltara Enerval informe skills](
+	[id] [int] IDENTITY(1,1) NOT NULL,
+	[Intervalo] [datetime] NULL,
+	[Skill ID] [int] NULL,
+	[Volumen de llamadas entrantes] [smallint] NULL,
+	[Volumen de llamadas respondidas] [smallint] NULL,
+	[Volumen de llamadas abandonadas] [smallint] NULL,
+	[% Abandono en Cola] [decimal](5, 2) NULL,
+	[Llamadas reincidentes] [smallint] NULL,
+	[% Nivel de Servicio] [decimal](5, 2) NULL,
+	[% Nivel de atención] [decimal](5, 2) NULL,
+	[Tiempo máximo de espera] [smallint] NULL,
+	[TME] [smallint] NULL,
+	[TMS] [smallint] NULL,
+	[TMO] [smallint] NULL,
+	[% FCR (First Call Resolution)] [decimal](5, 2) NULL,
+	[Agentes Logueados] [smallint] NULL,
+	[Agentes disponibles] [smallint] NULL,
+	[Agentes en servicio] [smallint] NULL,
+	[Agentes en pausa] [smallint] NULL,
+	[Pausa Capacitación] [smallint] NULL,
+	[Pausas Administrativo] [smallint] NULL,
+	[Pausa Break] [smallint] NULL,
+	[Pausa Técnica] [smallint] NULL,
+	[Pausa Activa] [smallint] NULL,
+	[Pausa Personal] [smallint] NULL,
+	[Pausa Login] [smallint] NULL,
+	[Tiempo Agentes Logueados] [int] NULL,
+	[% Ocupacion] [decimal](5, 2) NULL,
+	[Tiempo Agentes Disponible] [int] NULL,
+	[Tiempo Agentes en servicio] [int] NULL,
+	[Tiempo Agentes en pausa] [int] NULL,
+	[Tiempo Pausas Capacitación] [int] NULL,
+	[Tiempo Pausas Administrativo] [int] NULL,
+	[Tiempo Pausa Break] [int] NULL,
+	[Tiempo Pausa Técnica] [smallint] NULL,
+	[Tiempo Pausa Activa] [smallint] NULL,
+	[Tiempo Pausa Personal] [smallint] NULL,
+	[Tiempo Pausa Login] [smallint] NULL,
+	[Tiempo Pausa sin razón] [smallint] NULL,
+	[Contestadas Umbral] [smallint] NULL,
+	[Contestadas  <= 1] [smallint] NULL,
+	[Contestadas > 1 <= 5] [smallint] NULL,
+	[Contestadas > 5 <= 10] [smallint] NULL,
+	[Contestadas > 10 <= 20] [smallint] NULL,
+	[Contestadas > 20 <= 30] [smallint] NULL,
+	[Contestadas > 30 <= 60] [smallint] NULL,
+	[Contestadas > 60 <= 120] [smallint] NULL,
+	[Contestadas > 120 <= 180] [smallint] NULL,
+	[Contestadas > 180 <= 300] [smallint] NULL,
+	[Contestadas > 300] [smallint] NULL,
+	[Llamadas respondidas por 60] [smallint] NULL,
+	[Abandonadas  <= 1] [smallint] NULL,
+	[Abandonadas > 1 <= 5] [smallint] NULL,
+	[Abandonadas > 5 <= 10] [smallint] NULL,
+	[Abandonadas > 10 <= 20] [smallint] NULL,
+	[Abandonadas > 20 <= 30] [smallint] NULL,
+	[Abandonadas > 30 <= 60] [smallint] NULL,
+	[Abandonadas > 60 <= 120] [smallint] NULL,
+	[Abandonadas > 120 <= 180] [smallint] NULL,
+	[Abandonadas > 180 <= 300] [smallint] NULL,
+	[Abandonadas > 300] [smallint] NULL,
+	[Tiempo total de hold] [int] NULL,
+	[Tiempo total de espera] [int] NULL,
+	[Tempo total después del servicio] [int] NULL,
+	[Llamadas cerradas por el cliente] [smallint] NULL,
+	[Tiempo total ring] [int] NULL,
+	[Tiempo total de abandono] [int] NULL,
+	[Llamadas transferidas] [smallint] NULL,
+ CONSTRAINT [PK_Voltara Enerval informe skills] PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]
+END
+GO

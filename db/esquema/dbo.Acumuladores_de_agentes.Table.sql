@@ -1,0 +1,81 @@
+-- Table [dbo].[Acumuladores_de_agentes]
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[Acumuladores_de_agentes]') AND type in (N'U'))
+BEGIN
+CREATE TABLE [dbo].[Acumuladores_de_agentes](
+	[id] [int] IDENTITY(1,1) NOT NULL,
+	[Intervalo] [date] NULL,
+	[Grupo] [varchar](max) NULL,
+	[Login Id] [varchar](max) NULL,
+	[Agente] [varchar](max) NULL,
+	[LogIn] [bigint] NULL,
+	[Internas Entrantes No Atendidas] [bigint] NULL,
+	[Internas Entrantes Atendidas] [bigint] NULL,
+	[Internas Salientes No Atendidas] [bigint] NULL,
+	[Internas Salientes Atendidas] [bigint] NULL,
+	[Entrantes No Atendidas] [bigint] NULL,
+	[Entrantes Atendidas] [bigint] NULL,
+	[Salientes No Atendidas] [bigint] NULL,
+	[Salientes Atendidas] [bigint] NULL,
+	[Discador No Atendidas] [bigint] NULL,
+	[Discador Atendidas] [bigint] NULL,
+	[Transfer In] [bigint] NULL,
+	[Transfer Out] [bigint] NULL,
+	[Unstaffed] [bigint] NULL,
+	[Avail] [bigint] NULL,
+	[Preview] [bigint] NULL,
+	[Dial] [bigint] NULL,
+	[Ring] [bigint] NULL,
+	[Connect] [bigint] NULL,
+	[Hold] [bigint] NULL,
+	[ACW] [bigint] NULL,
+	[Not Ready] [bigint] NULL,
+	[Break] [bigint] NULL,
+	[Baño] [bigint] NULL,
+	[Entrenamiento] [bigint] NULL,
+	[Capacitación] [bigint] NULL,
+	[Administrativo] [bigint] NULL,
+	[Supervisión] [bigint] NULL,
+	[Llamado.saliente] [bigint] NULL,
+	[Gestión.fuera.línea] [bigint] NULL,
+	[No.Disponible] [bigint] NULL,
+	[Tutores] [bigint] NULL,
+	[Auxiliar Total] [bigint] NULL,
+	[Auxiliar %] [varchar](max) NULL,
+	[Tiempo Real de Logueo] [bigint] NULL,
+	[Utilización] [varchar](max) NULL,
+	[Connect % Real] [varchar](max) NULL,
+	[Ring % Real] [varchar](max) NULL,
+	[Avail % Real] [varchar](max) NULL,
+	[AHT] [varchar](max) NULL,
+	[ATT] [varchar](max) NULL,
+	[Avail Count] [bigint] NULL,
+	[Hold Count] [bigint] NULL,
+	[Not Ready Count] [bigint] NULL,
+	[Avail Max] [bigint] NULL,
+	[Hold Max] [bigint] NULL,
+	[Not Ready Max] [bigint] NULL,
+	[Talking Time Internas Entrantes] [bigint] NULL,
+	[Talking Time Internas Salientes] [bigint] NULL,
+	[Tipificación Otro] [bigint] NULL,
+	[Tipificación Exitoso] [bigint] NULL,
+	[Tipificación No Exitoso] [bigint] NULL,
+	[Tipificación No Efectivo] [bigint] NULL,
+	[Tipificación Neutro] [bigint] NULL,
+	[FechaRango] [float] NULL,
+	[CE] [bigint] NULL,
+	[%CE] [varchar](max) NULL,
+	[Exitos / CE] [varchar](max) NULL,
+	[Exitos por Hora Real] [varchar](max) NULL,
+	[idAgente] [bigint] NULL,
+	[idGrupo] [float] NULL,
+ CONSTRAINT [PK_Acumuladores_de_agentes] PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+END
+GO

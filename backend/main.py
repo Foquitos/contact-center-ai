@@ -19,7 +19,13 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Cada worker calienta y mantiene vivas sus conexiones a los APIs de Gemini
     # (embeddings + LLM, ver start_rag_warmup); es la mayor optimización de TTFT del chatbot.
-    keepalive_task = await start_rag_warmup(settings.CHATBOT_EMBED_KEEPALIVE_SECONDS)
+    # Sin una clave válida de Gemini el calentamiento falla: se sigue sin él para que el
+    # resto de la aplicación (auditorías ya hechas, dashboards, usuarios) funcione igual.
+    try:
+        keepalive_task = await start_rag_warmup(settings.CHATBOT_EMBED_KEEPALIVE_SECONDS)
+    except Exception:
+        logging.getLogger(__name__).exception("No se pudo calentar el RAG (¿falta la clave de Gemini?)")
+        keepalive_task = None
     try:
         yield
     finally:

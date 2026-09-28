@@ -81,4 +81,8 @@ def test_cuerpo_de_vista_valido(archivo, nombre, cuerpo, validar_sql):
         m = re.search(r"Invalid column name '(\w+)'", str(resultado.error))
         if m and _columna_agregada_en_migracion(archivo, m.group(1)):
             pytest.xfail(f"la columna '{m.group(1)}' la crea esta misma migración (pendiente de aplicar)")
+        # La base de demostración no tiene los linked servers de la instalación original.
+        m = re.search(r"Could not find server '(\w+)'", str(resultado.error))
+        if m:
+            pytest.skip(f"el linked server {m.group(1)} no existe en esta base")
     assert resultado.ok, f"{archivo} -> {nombre}: {resultado.error}"
