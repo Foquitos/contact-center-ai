@@ -63,5 +63,7 @@ jobs:
         if: failure()
         run: |
           # Cada test fallido queda como anotación de la corrida (se ven sin abrir el log).
-          grep -E "^(FAILED|ERROR) " pytest.log | head -40 | while read -r linea; do echo "::error::${linea:0:900}"; done
-          tail -3 pytest.log | while read -r linea; do echo "::error::${linea:0:900}"; done
+          # GitHub muestra hasta 10 anotaciones por paso: primero el resumen y las causas distintas.
+          tail -1 pytest.log | while read -r linea; do echo "::error::${linea:0:900}"; done
+          grep -E "^E  " pytest.log | sort | uniq -c | sort -rn | head -5 | while read -r linea; do echo "::error::${linea:0:900}"; done
+          grep -E "^(FAILED|ERROR) " pytest.log | head -4 | while read -r linea; do echo "::error::${linea:0:900}"; done
