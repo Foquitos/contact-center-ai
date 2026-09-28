@@ -679,9 +679,9 @@ def _cargar_planificador_gasur(cur, rnd, hoy, alta_nomina, campana_rrhh: int) ->
     _insertar_lotes(cur, "INSERT INTO dbo.payroll (id_operadores, fecha, inicio, final, codigo, horas_programadas, "
                     "horas_trabajadas)", 7, payroll)
 
-    # Malla publicada (turnos de las próximas dos semanas) y forecast del cliente (por hora, sin skill).
+    # Malla publicada (turnos del próximo mes) y forecast del cliente (por hora, sin skill).
     futuro, forecast = [], []
-    for k in range(0, 17):
+    for k in range(0, 32):
         dia = hoy + timedelta(days=k)
         if dia not in temperatura:
             temperatura[dia] = _temperatura_media(dia)

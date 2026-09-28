@@ -1,144 +1,184 @@
-# contact-center-ai
+# Contact Center AI
 
-> **Proyecto de portfolio.** Es la plataforma que desarrollé para el contact center de una empresa de BPO, publicada
-> con autorización de la empresa. Esta versión está **anonimizada**: la empresa, sus clientes y las personas tienen
-> nombres ficticios (Acme, Voltara, Hidra, Benefix, Vantix…), y se sacaron IPs, dominios, identificadores de Google,
-> credenciales y datos reales. También quedaron afuera los documentos operativos internos (runbook de producción,
-> integraciones y traspaso) y la foto del esquema de la base: cuando el texto los menciona, no están en este repo.
+Plataforma interna para operar un contact center con IA. La IA audita la calidad de llamadas y chats. Los
+chatbots responden a los operadores con la documentación de cada campaña. Un planificador pronostica las llamadas
+por media hora y calcula cuánta gente hace falta.
 
-Plataforma interna del contact center: **auditoría de calidad con IA** (audios y chats evaluados con Gemini
-según plantillas), **chatbots** que responden con la documentación de cada campaña, **planificador** de
-llamadas y dotación, y administración de usuarios y permisos.
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-frontend-000000?logo=flask&logoColor=white)
+![SQL Server](https://img.shields.io/badge/SQL%20Server-2022-CC2927?logo=microsoftsqlserver&logoColor=white)
+![Gemini](https://img.shields.io/badge/Google-Gemini-8E75B2?logo=googlegemini&logoColor=white)
+![Qdrant](https://img.shields.io/badge/Qdrant-RAG-DC244C)
+![Tests](https://img.shields.io/badge/tests-2.700%2B-2EA44F)
 
-Es un monorepo Python con dos servicios web y un proceso de tareas:
+![Recorrido: ingreso, dashboard de auditorías y planificador](docs/img/recorrido.gif)
 
-| Servicio | Tecnología | Puerto | Qué hace |
-|---|---|---|---|
-| `backend/` | FastAPI + Gunicorn | 8000 | API, lógica de negocio, IA; el único que habla con la base y los sistemas externos |
-| `frontend/` | Flask + Gunicorn | 7000 | Interfaz web. **Nunca toca la base**: todo lo pide al backend |
-| `backend/run_scheduler.py` | APScheduler | — | Colas, auditorías programadas, lotes de Gemini, alertas |
-
-En la instalación original, producción y desarrollo corrían en dos servidores Linux (**SRV01** y **SRV00**) contra
-la **misma base** SQL Server (base `Acme` en esta versión).
+> **Sobre este repositorio.** Desarrollé este sistema para el área de operaciones de una empresa de BPO, donde
+> estuvo en producción. Lo publico con autorización de la empresa. Esta versión está **anonimizada**: la empresa,
+> sus clientes y las personas llevan nombres ficticios (Acme, Voltara, Hidra, Benefix, Gasur…). Saqué credenciales,
+> direcciones internas y datos reales. Los datos que se ven en las animaciones son inventados: los genera la
+> [base de demostración](db/README.md).
 
 ---
 
-## Qué leer para cada cosa
+## Qué hace
 
-| Si necesitás… | Leé |
+| Módulo | Para quién | Qué resuelve |
+|---|---|---|
+| **Auditoría de calidad con IA** | Calidad | Baja llamadas y chats de las plataformas de telefonía y los evalúa con Gemini según la plantilla de cada campaña. Guarda el puntaje ponderado, los errores críticos y la transcripción de cada auditoría. |
+| **Dashboard de auditorías** | Supervisores, gerencia | Gráficos, tablas comparativas y tendencias por operador, equipo y atributo, con un asistente de IA que analiza lo que está en pantalla. |
+| **Evaluación de la IA** | Calidad | Mide cuánto coincide la IA con la revisión humana (kappa de Cohen por atributo) antes de confiar en una plantilla. |
+| **Chatbots RAG** | Operadores | Responden con la documentación de cada campaña. La búsqueda es híbrida: vectores + BM25 + reranker. |
+| **Planificador** | Planificación | Pronostica las llamadas por media hora y calcula los operadores necesarios (Erlang C/A). Compara el resultado con la malla publicada y con el forecast del cliente. |
+| **Gobierno de la IA** | Administración | Muestra el costo por función y por campaña, el presupuesto mensual y el cupo de auditorías por campaña. |
+| **Usuarios y permisos** | Administración | RBAC con jerarquía de roles y alcance por empresa. Permite simular un rol y deja un log de cambios. |
+
+### Auditoría de calidad
+
+Se filtra por campaña y plantilla. Se ven los resultados de cada atributo, y se puede abrir la transcripción del
+llamado o la versión con audio.
+
+![Auditorías realizadas](docs/img/auditorias.gif)
+
+### Dashboard
+
+Muestra la distribución por atributo, la apertura por operador, la tendencia de cada persona y tablas
+comparativas entre períodos.
+
+![Dashboard de auditorías](docs/img/dashboard.gif)
+
+### Planificador
+
+Un mapa de calor muestra la brecha de dotación de las próximas semanas. Hay un gráfico de llamadas reales,
+pronosticadas y del cliente, un simulador de escenarios, y el estado de cada fuente de datos.
+
+![Planificador](docs/img/planificador.gif)
+
+### Plantillas, roles y costos
+
+El editor de plantillas incluye asistentes de IA y controles de redacción. También hay una pantalla de gestión
+de roles y el tablero de consumo de Gemini.
+
+![Plantillas, roles y uso de IA](docs/img/administracion.gif)
+
+---
+
+## Arquitectura
+
+```mermaid
+flowchart LR
+    U[Navegador] --> F["Frontend Flask :7000<br/>Jinja2 + JS"]
+    F -->|"REST (JWT)"| B["Backend FastAPI :8000"]
+    S["Scheduler<br/>APScheduler"] --> DB
+    B --> DB[("SQL Server<br/>calidad · pagina_web · planificacion")]
+    B --> G["Gemini<br/>sync · batch · embeddings"]
+    S --> G
+    B --> Q[("Qdrant + BM25<br/>índices por bot")]
+    B --> P["Plataformas de telefonía<br/>Mitrol · Genesys · CXone · Avaya"]
+```
+
+- El **frontend nunca toca la base**: todo pasa por el backend, que valida permisos en cada endpoint.
+- El **scheduler** es un proceso aparte. Maneja colas, lotes batch de Gemini, auditorías programadas y alertas.
+  Las colas filtran por entorno, así desarrollo y producción pueden compartir la base sin pisarse.
+- El detalle de cada flujo está en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
+
+## Decisiones técnicas destacadas
+
+Cada una está explicada, con su contexto y sus alternativas, en [docs/DECISIONES.md](docs/DECISIONES.md).
+
+- **Batch de Gemini por defecto.** Cuesta la mitad que el modo sincrónico. Tiene una cola propia con techo de
+  jobs, lotes por archivo y un script que recupera los llamados cuando un lote termina "exitoso" con errores
+  adentro.
+- **Puntaje como foto.** La ponderación de cada atributo se guarda con la auditoría: editar una plantilla no
+  reescribe la historia. Las plantillas se versionan, y reauditar archiva la corrida anterior.
+- **Medir antes de confiar.** El Golden Set compara la IA contra la revisión humana con kappa de Cohen por
+  atributo. Los chatbots tienen un set dorado de preguntas reales para medir la recuperación del RAG.
+- **RAG híbrido** (Qdrant + BM25 + reranker). Cada fragmento repite el título de su sección, y cuando el bot no
+  está seguro ofrece temas para elegir en vez de responder "no encontré".
+- **Pronóstico validado con backtest.** GBDT + persistencia + corrección intradía. Sobre un año de historia, el
+  error del plan de la mañana bajó de 17,7 % a 14,4 % (MAPE del total diario). Ver
+  [docs/PLANIFICADOR.md](docs/PLANIFICADOR.md) y [docs/ESTADISTICA.md](docs/ESTADISTICA.md).
+- **Costos controlados.** Se usa caché de contexto de Gemini. Hay un catálogo de modelos con precios vigentes por
+  fecha, cupos por campaña y el costo registrado por función.
+- **SQL verificado en los tests sin ejecutarlo** (`sys.dm_exec_describe_first_result_set`). Las migraciones son
+  aditivas e idempotentes, y cada cambio de esquema tiene la suya.
+
+## Stack
+
+| Capa | Tecnologías |
 |---|---|
-| Entender cómo está armado y cómo viaja una auditoría | [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md) |
-| Saber qué variable configura qué y dónde vive | [docs/CONFIGURACION.md](docs/CONFIGURACION.md) |
-| Tablas, cargas externas, linked servers, cómo escribir una migración | [docs/BASE_DE_DATOS.md](docs/BASE_DE_DATOS.md) |
-| El planificador (pronóstico y dotación) | [docs/PLANIFICADOR.md](docs/PLANIFICADOR.md) |
-| Kappa, semáforo de plantillas, Erlang, WAPE: qué miden y qué no tocar | [docs/ESTADISTICA.md](docs/ESTADISTICA.md) |
-| Por qué algo está hecho de una forma que parece rara | [docs/DECISIONES.md](docs/DECISIONES.md) |
-| Qué significa un término | [docs/GLOSARIO.md](docs/GLOSARIO.md) |
-| Los proyectos a futuro y las mejoras chicas ya estudiadas | [docs/DESARROLLOS_FUTUROS.md](docs/DESARROLLOS_FUTUROS.md) |
+| Backend | Python 3.11, FastAPI, SQLAlchemy + pyodbc, Pydantic, APScheduler |
+| Frontend | Flask, Jinja2, Bootstrap, Chart.js, JavaScript sin framework |
+| Datos | SQL Server (T-SQL, stored procedures, vistas), Qdrant |
+| IA | Google Gemini (audio y texto, batch, embeddings, caché de contexto), LlamaIndex |
+| Pronóstico | scikit-learn (GBDT), Erlang C / Erlang A, clima (Open-Meteo) |
+| Integraciones | Mitrol, Genesys Cloud, NICE CXone, Avaya/Verint, Google Sheets, Selenium |
+| Calidad | pytest (~2.700 tests offline), migraciones SQL versionadas |
+
+---
+
+## Probarlo
+
+La base original no viaja con el repo. [`db/`](db/README.md) trae un SQL Server en Docker con el esquema completo
+y datos inventados: auditorías, dashboard, uso de IA y un año de llamadas para el planificador.
+
+Requisitos: Python 3.11+, Docker, el [driver ODBC 18 de SQL Server](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server) y `make`.
+
+```bash
+git clone <url-del-repositorio> && cd contact-center-ai
+make install && cp .env.example .env
+make db-demo              # SQL Server en Docker + base Acme con datos de ejemplo (~3 min)
+make dev                  # http://localhost:7000 — usuario 11111111, clave demo1234
+```
+
+Hay cinco usuarios de ejemplo, uno por rol ([db/README.md](db/README.md)). Para auditar y usar los chatbots hace
+falta una clave propia de Gemini en el `.env`.
+
+## Para desarrolladores
+
+```bash
+make backend                                       # solo backend → http://localhost:8000/docs
+make frontend                                      # solo frontend → http://localhost:7000
+cd backend && ../.venv/bin/python run_scheduler.py # scheduler
+
+scripts/correr_tests.sh -m "not tokens"            # suite offline (~2.700 tests, ~40 s, sin gastar IA)
+scripts/correr_tests.sh tests/test_batch_cola.py   # un archivo
+scripts/correr_tests.sh -m tokens                  # tests contra Gemini de verdad: gastan tokens
+```
+
+Varios tests validan SQL contra la base sin ejecutarlo (fixture `validar_sql`). Con la base de demostración
+levantada, la suite corre completa.
+
+```
+contact-center-ai/
+├── backend/
+│   ├── main.py              # app FastAPI
+│   ├── run_scheduler.py     # scheduler (proceso aparte)
+│   ├── Auditor.py           # orquestador de auditorías
+│   ├── chatBot.py           # motor de los chatbots RAG
+│   ├── AuditorIA/           # auditoría: consultas por campaña, Gemini, lotes, conectores (downloads/)
+│   ├── app/                 # routers/, configuración, seguridad, RBAC, planificador_*, cuotas…
+│   └── tests/
+├── frontend/app/            # blueprints, plantillas Jinja2, JS y CSS
+├── scripts/                 # crons, recuperación de lotes, evaluación; migrations/ con el SQL de cada cambio
+├── db/                      # base de demostración: esquema, datos inventados, docker-compose
+└── docs/
+```
+
+| Documento | Qué tiene |
+|---|---|
+| [ARQUITECTURA](docs/ARQUITECTURA.md) | Flujos, módulos y API |
+| [DECISIONES](docs/DECISIONES.md) | Por qué cada cosa está hecha como está |
+| [PLANIFICADOR](docs/PLANIFICADOR.md) | Pronóstico, dotación y validación |
+| [ESTADISTICA](docs/ESTADISTICA.md) | Kappa, semáforo de plantillas, Erlang, WAPE: qué miden y sus límites |
+| [BASE_DE_DATOS](docs/BASE_DE_DATOS.md) | Tablas, cargas externas y migraciones |
+| [CONFIGURACION](docs/CONFIGURACION.md) | Variables y dónde vive cada una |
+| [GLOSARIO](docs/GLOSARIO.md) | Términos del negocio |
+| [DESARROLLOS_FUTUROS](docs/DESARROLLOS_FUTUROS.md) | Lo que quedó estudiado para después |
 
 El manual para usuarios finales está dentro de la aplicación, en `/documentacion`.
 
 ---
 
-## Módulos
-
-- **AuditorIA** — baja interacciones de cada plataforma, las evalúa con Gemini según la plantilla de la campaña
-  y guarda puntaje, errores críticos y transcripción. Modo Batch por defecto; tareas programadas; exporta a
-  Google Sheets y mail. → [ARQUITECTURA](docs/ARQUITECTURA.md#1-auditoría-de-calidad-auditoria)
-- **Golden Set y evaluación** — mide cuánto acierta la IA contra la revisión de un auditor (kappa por
-  atributo). → [ESTADISTICA](docs/ESTADISTICA.md)
-- **Dashboard de auditorías** — gráficos, tablas y tendencias por operador y atributo, con asistente de IA.
-  → [ARQUITECTURA](docs/ARQUITECTURA.md#dashboard-de-auditorías-tagsbandeja)
-- **Plantillas** — ABM de campañas, plantillas y atributos, con asistente de IA y controles de redacción.
-  → [ARQUITECTURA](docs/ARQUITECTURA.md#plantillas-y-prompts-tagsplantillas)
-- **Chatbots RAG** — responden a los operadores con la documentación de cada campaña (LlamaIndex + Qdrant +
-  Gemini). → [ARQUITECTURA](docs/ARQUITECTURA.md#2-chatbot-rag)
-- **Planificador** — pronóstico por media hora y operadores necesarios para Voltara y Hidra Técnico.
-  → [PLANIFICADOR](docs/PLANIFICADOR.md)
-- **Uso de IA** — consumo, costo y presupuesto mensual. → [ARQUITECTURA](docs/ARQUITECTURA.md)
-- **Usuarios, roles y permisos** — RBAC con jerarquía de roles y alcance por empresa.
-  → [ARQUITECTURA](docs/ARQUITECTURA.md#autenticación-y-autorización-rbac)
-- **Coral y tutorial guiado** — ayuda en pantalla sobre el manual. → [ARQUITECTURA](docs/ARQUITECTURA.md)
-- **ChatBot SQL** (discontinuado) y **RRHH** (en desuso): el código sigue en el repo.
-
----
-
-## Probarlo con la base de demostración
-
-La base original no viaja con el repo. En `db/` hay un SQL Server en Docker con el esquema completo y datos
-inventados (auditorías, dashboard, uso de IA, planificador con un año de llamadas):
-
-```bash
-make install && cp .env.example .env
-make db-demo              # SQL Server en Docker + base Acme con datos de ejemplo
-make dev                  # http://localhost:7000 — usuario 11111111, clave demo1234
-```
-
-Usuarios, qué trae y qué necesita una clave de Gemini: [db/README.md](db/README.md).
-
-## Instalación en desarrollo
-
-Requisitos: **Python 3.11 o más** (numpy y scipy lo exigen), driver ODBC 18 de SQL Server, Google Chrome (para
-los conectores con Selenium), ffmpeg y `make`.
-
-```bash
-git clone <url-del-repositorio> && cd contact-center-ai
-make install              # crea .venv en la raíz e instala requirements.txt (un solo venv para todo)
-cp .env.example .env      # completar los secretos (ver docs/CONFIGURACION.md)
-```
-
-En producción el venv se llamaba `venv` (sin punto) y se desplegaba con `git pull` en el servidor.
-
-## Ejecución
-
-```bash
-make dev                  # backend (:8000) + frontend (:7000)
-make backend              # solo backend  → http://localhost:8000/docs
-make frontend             # solo frontend → http://localhost:7000
-
-cd backend && ../.venv/bin/python run_scheduler.py   # scheduler, si hace falta en dev
-```
-
-`make backend` y `make frontend` corren `make install` antes de arrancar. En dev, el scheduler toma solo el
-trabajo de `ENVIRONMENT=dev` y no registra los jobs de producción.
-
-## Tests
-
-```bash
-scripts/correr_tests.sh -m "not tokens"               # suite offline (~2.400 tests, ~50 s, sin gastar IA)
-scripts/correr_tests.sh tests/test_batch_cola.py -k claim   # un archivo o un caso
-scripts/correr_tests.sh tests/test_chatbots_live.py -m tokens  # GASTA tokens de IA: solo a propósito
-```
-
-Los tests están en `backend/tests/` (configuración en `backend/conftest.py`). Varios validan SQL contra la base
-**sin ejecutarlo** (fixture `validar_sql`): necesitan el `.env` y conexión a la base (sirve la de demostración). Ver
-[BASE_DE_DATOS.md → Cómo se valida](docs/BASE_DE_DATOS.md#cómo-se-valida-antes-de-aplicarla).
-
----
-
-## Estructura
-
-```
-contact-center-ai/
-├── backend/
-│   ├── main.py              # app FastAPI (routers, CORS, /health/)
-│   ├── run_scheduler.py     # scheduler (proceso aparte)
-│   ├── Auditor.py           # orquestador de auditorías
-│   ├── chatBot.py           # motor de los chatbots RAG
-│   ├── reindex_all.py       # reindexado de chatbots por consola
-│   ├── AuditorIA/           # auditoría: builders SQL, Gemini, lotes, descargas por plataforma (downloads/)
-│   ├── app/                 # routers/, config.py, seguridad, RBAC y módulos de negocio (planificador_*, cuotas…)
-│   ├── storage/             # audios conservados, lotes en espera, trabajos (fuera de git)
-│   └── tests/
-├── frontend/
-│   ├── run.py
-│   └── app/                 # routes/ (blueprints), templates/, static/, utils/ (api_client, menu_config)
-├── scripts/                 # crons, recuperación de lotes, evaluación, utilitarios
-│   └── migrations/          # SQL de las migraciones
-├── db/                      # base de demostración: esquema, datos inventados, docker-compose
-├── docs/
-├── docker-compose.qdrant.yml
-├── requirements.txt         # un solo archivo para backend y frontend
-├── Makefile
-└── .env.example
-```
+**Autor:** Ignacio Otranto
